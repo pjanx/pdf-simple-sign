@@ -967,7 +967,6 @@ int main(int argc, char* argv[]) {
       (void) unlink(output_path);
       die(3, "%s: %s", output_path, strerror(errno));
     }
-    fclose(fp);
   } else {
     die(3, "%s: %s", output_path, strerror(errno));
   }
