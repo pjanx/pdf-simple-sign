@@ -22,7 +22,7 @@ self-contained and it should be easy to grasp and change to suit to your needs.
 Building
 --------
 Build dependencies: Meson, a C++11 compiler, pkg-config +
-Runtime dependencies: libcrypto
+Runtime dependencies: libcrypto (OpenSSL 1.1 API)
 
  $ git clone https://git.janouch.name/p/pdf-simple-sign.git
  $ cd pdf-simple-sign
