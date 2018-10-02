@@ -562,7 +562,7 @@ pdf_object pdf_updater::get(uint n, uint generation) const {
   if (n >= xref_size)
     return {pdf_object::NIL};
 
-  auto& ref = xref[n];
+  const auto& ref = xref[n];
   if (ref.free || ref.generation != generation || ref.offset >= document.length())
     return {pdf_object::NIL};
 
