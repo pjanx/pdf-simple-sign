@@ -301,6 +301,7 @@ static std::string pdf_serialize(const pdf_object& o) {
   {
     std::string s;
     for (const auto i : o.dict)
+      // FIXME the key is also supposed to be escaped by pdf_serialize()
       s += " /" + i.first + " " + pdf_serialize(i.second);
     return "<<" + s + " >>";
   }
@@ -543,6 +544,7 @@ std::string pdf_updater::initialize() {
     const auto prev_offset = trailer.dict.find("Prev");
     if (prev_offset == trailer.dict.end())
       break;
+    // FIXME we don't check for size_t over or underflow
     if (!prev_offset->second.is_integer())
       return "invalid Prev offset";
     xref_offset = prev_offset->second.number;
