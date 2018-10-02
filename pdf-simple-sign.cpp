@@ -256,7 +256,7 @@ struct pdf_lexer {
 static std::string pdf_serialize(const pdf_object& o) {
   switch (o.type) {
   case pdf_object::NL:      return "\n";
-  case pdf_object::NIL:     return "nil";
+  case pdf_object::NIL:     return "null";
   case pdf_object::BOOL:    return o.number ? "true" : "false";
   case pdf_object::NUMERIC:
   {
