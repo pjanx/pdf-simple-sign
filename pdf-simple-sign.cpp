@@ -136,12 +136,11 @@ struct pdf_lexer {
           if (eat_newline(ch))
             continue;
           std::string octal;
-          if (*p && strchr(oct_alphabet, *p)) octal += *p++;
-          if (*p && strchr(oct_alphabet, *p)) octal += *p++;
-          if (*p && strchr(oct_alphabet, *p)) octal += *p++;
-          if (!octal.empty()) {
-            value += char(std::stoi(octal, nullptr, 8));
-            continue;
+          if (ch && strchr(oct_alphabet, ch)) {
+            octal += ch;
+            if (*p && strchr(oct_alphabet, *p)) octal += *p++;
+            if (*p && strchr(oct_alphabet, *p)) octal += *p++;
+            ch = std::stoi(octal, nullptr, 8);
           }
         }
       }
