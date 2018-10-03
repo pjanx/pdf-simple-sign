@@ -353,6 +353,12 @@ public:
 
 // -------------------------------------------------------------------------------------------------
 
+/// If the object is an error, forward its message, otherwise return err.
+static std::string pdf_error(const pdf_object& o, const char* err) {
+  if (o.type != pdf_object::END || o.string.empty()) return err;
+  return o.string;
+}
+
 pdf_object pdf_updater::parse_obj(pdf_lexer& lex, std::vector<pdf_object>& stack) const {
   if (stack.size() < 2)
     return {pdf_object::END, "missing object ID pair"};
@@ -370,7 +376,7 @@ pdf_object pdf_updater::parse_obj(pdf_lexer& lex, std::vector<pdf_object>& stack
   while (1) {
     auto object = parse(lex, obj.array);
     if (object.type == pdf_object::END)
-      return {pdf_object::END, "object doesn't end"};
+      return {pdf_object::END, pdf_error(object, "object doesn't end")};
     if (object.type == pdf_object::KEYWORD && object.string == "endobj")
       break;
     obj.array.push_back(std::move(object));
@@ -408,7 +414,7 @@ pdf_object pdf_updater::parse(pdf_lexer& lex, std::vector<pdf_object>& stack) co
     while (1) {
       auto object = parse(lex, array);
       if (object.type == pdf_object::END)
-        return {pdf_object::END, "array doesn't end"};
+        return {pdf_object::END, pdf_error(object, "array doesn't end")};
       if (object.type == pdf_object::E_ARRAY)
         break;
       array.push_back(std::move(object));
@@ -421,7 +427,7 @@ pdf_object pdf_updater::parse(pdf_lexer& lex, std::vector<pdf_object>& stack) co
     while (1) {
       auto object = parse(lex, array);
       if (object.type == pdf_object::END)
-        return {pdf_object::END, "dictionary doesn't end"};
+        return {pdf_object::END, pdf_error(object, "dictionary doesn't end")};
       if (object.type == pdf_object::E_DICT)
         break;
       array.push_back(std::move(object));
@@ -459,7 +465,7 @@ std::string pdf_updater::load_xref(pdf_lexer& lex, std::set<uint>& loaded_entrie
   while (1) {
     auto object = parse(lex, throwaway_stack);
     if (object.type == pdf_object::END)
-      return "unexpected EOF while looking for the trailer";
+      return pdf_error(object, "unexpected EOF while looking for the trailer");
     if (object.type == pdf_object::KEYWORD && object.string == "trailer")
       break;
 
@@ -529,7 +535,7 @@ std::string pdf_updater::initialize() {
 
     auto trailer = parse(lex, throwaway_stack);
     if (trailer.type != pdf_object::DICT)
-      return "invalid trailer dictionary";
+      return pdf_error(trailer, "invalid trailer dictionary");
     if (loaded_xrefs.empty())
       this->trailer = trailer.dict;
     loaded_xrefs.insert(xref_offset);
