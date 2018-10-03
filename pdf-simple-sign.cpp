@@ -161,6 +161,7 @@ struct pdf_lexer {
         buf.clear();
       }
     }
+    p++;
     if (!buf.empty()) value += char(std::stoi(buf + '0', nullptr, 16));
     return {pdf_object::STRING, value};
   }
