@@ -68,7 +68,7 @@ const (
 type Object struct {
 	Kind ObjectKind
 
-	// End (error message), Comment/Keyword/Name/String
+	// Comment/Keyword/Name/String
 	String string
 	// Bool, Numeric
 	Number float64
@@ -92,11 +92,7 @@ func (o *Object) IsUint() bool {
 }
 
 // A slew of constructors that will hopefully get all inlined.
-// TODO(p): We should probably ditch NewError for multiple return values.
-// It could be a private function that returns New(End) and error.
 
-func NewEOF() Object             { return Object{Kind: End} }
-func NewError(e string) Object   { return Object{Kind: End, String: e} }
 func NewComment(c string) Object { return Object{Kind: Comment, String: c} }
 func NewKeyword(k string) Object { return Object{Kind: Keyword, String: k} }
 func New(kind ObjectKind) Object { return Object{Kind: kind} }
@@ -132,6 +128,8 @@ func NewIndirect(o Object, n, generation uint) Object {
 func NewReference(n, generation uint) Object {
 	return Object{Kind: Reference, N: n, Generation: generation}
 }
+
+func newError(msg string) (Object, error) { return New(End), errors.New(msg) }
 
 // -----------------------------------------------------------------------------
 
@@ -205,13 +203,13 @@ func (lex *Lexer) unescape(ch byte) byte {
 	return ch
 }
 
-func (lex *Lexer) string() Object {
+func (lex *Lexer) string() (Object, error) {
 	var value []byte
 	parens := 1
 	for {
 		ch, ok := lex.read()
 		if !ok {
-			return NewError("unexpected end of string")
+			return newError("unexpected end of string")
 		}
 		if lex.eatNewline(ch) {
 			ch = '\n'
@@ -223,7 +221,7 @@ func (lex *Lexer) string() Object {
 			}
 		} else if ch == '\\' {
 			if ch, ok = lex.read(); !ok {
-				return NewError("unexpected end of string")
+				return newError("unexpected end of string")
 			} else if lex.eatNewline(ch) {
 				continue
 			} else {
@@ -232,19 +230,19 @@ func (lex *Lexer) string() Object {
 		}
 		value = append(value, ch)
 	}
-	return NewString(string(value))
+	return NewString(string(value)), nil
 }
 
-func (lex *Lexer) stringHex() Object {
+func (lex *Lexer) stringHex() (Object, error) {
 	var value, buf []byte
 	for {
 		ch, ok := lex.read()
 		if !ok {
-			return NewError("unexpected end of hex string")
+			return newError("unexpected end of hex string")
 		} else if ch == '>' {
 			break
 		} else if strings.IndexByte(hexAlphabet, ch) < 0 {
-			return NewError("invalid hex string")
+			return newError("invalid hex string")
 		} else if buf = append(buf, ch); len(buf) == 2 {
 			u, _ := strconv.ParseUint(string(buf), 16, 8)
 			value = append(value, byte(u))
@@ -255,10 +253,10 @@ func (lex *Lexer) stringHex() Object {
 		u, _ := strconv.ParseUint(string(buf)+"0", 16, 8)
 		value = append(value, byte(u))
 	}
-	return NewString(string(value))
+	return NewString(string(value)), nil
 }
 
-func (lex *Lexer) name() Object {
+func (lex *Lexer) name() (Object, error) {
 	var value []byte
 	for {
 		ch, ok := lex.peek()
@@ -277,7 +275,7 @@ func (lex *Lexer) name() Object {
 				lex.read()
 			}
 			if len(hexa) != 2 {
-				return NewError("invalid name hexa escape")
+				return newError("invalid name hexa escape")
 			}
 			u, _ := strconv.ParseUint(string(value), 16, 8)
 			ch = byte(u)
@@ -285,12 +283,12 @@ func (lex *Lexer) name() Object {
 		value = append(value, ch)
 	}
 	if len(value) == 0 {
-		return NewError("unexpected end of name")
+		return newError("unexpected end of name")
 	}
-	return NewName(string(value))
+	return NewName(string(value)), nil
 }
 
-func (lex *Lexer) comment() Object {
+func (lex *Lexer) comment() (Object, error) {
 	var value []byte
 	for {
 		ch, ok := lex.peek()
@@ -300,11 +298,11 @@ func (lex *Lexer) comment() Object {
 		value = append(value, ch)
 		lex.read()
 	}
-	return NewComment(string(value))
+	return NewComment(string(value)), nil
 }
 
 // XXX: Maybe invalid numbers should rather be interpreted as keywords.
-func (lex *Lexer) number() Object {
+func (lex *Lexer) number() (Object, error) {
 	var value []byte
 	ch, ok := lex.peek()
 	if ch == '-' {
@@ -327,16 +325,16 @@ func (lex *Lexer) number() Object {
 		lex.read()
 	}
 	if !digits {
-		return NewError("invalid number")
+		return newError("invalid number")
 	}
 	f, _ := strconv.ParseFloat(string(value), 64)
-	return NewNumeric(f)
+	return NewNumeric(f), nil
 }
 
-func (lex *Lexer) Next() Object {
+func (lex *Lexer) Next() (Object, error) {
 	ch, ok := lex.peek()
 	if !ok {
-		return NewEOF()
+		return New(End), nil
 	}
 	if strings.IndexByte("-0123456789.", ch) >= 0 {
 		return lex.number()
@@ -355,13 +353,13 @@ func (lex *Lexer) Next() Object {
 	switch v := string(value); v {
 	case "":
 	case "null":
-		return New(Nil)
+		return New(Nil), nil
 	case "true":
-		return NewBool(true)
+		return NewBool(true), nil
 	case "false":
-		return NewBool(false)
+		return NewBool(false), nil
 	default:
-		return NewKeyword(v)
+		return NewKeyword(v), nil
 	}
 
 	switch ch, _ := lex.read(); ch {
@@ -372,29 +370,29 @@ func (lex *Lexer) Next() Object {
 	case '(':
 		return lex.string()
 	case '[':
-		return New(BArray)
+		return New(BArray), nil
 	case ']':
-		return New(EArray)
+		return New(EArray), nil
 	case '<':
 		if ch, _ := lex.peek(); ch == '<' {
 			lex.read()
-			return New(BDict)
+			return New(BDict), nil
 		}
 		return lex.stringHex()
 	case '>':
 		if ch, _ := lex.peek(); ch == '>' {
 			lex.read()
-			return New(EDict)
+			return New(EDict), nil
 		}
-		return NewError("unexpected '>'")
+		return newError("unexpected '>'")
 	default:
 		if lex.eatNewline(ch) {
-			return New(NL)
+			return New(NL), nil
 		}
 		if strings.IndexByte(whitespace, ch) >= 0 {
 			return lex.Next()
 		}
-		return NewError("unexpected input")
+		return newError("unexpected input")
 	}
 }
 
@@ -501,10 +499,10 @@ type Updater struct {
 	Trailer map[string]Object
 }
 
-func (u *Updater) parseIndirect(lex *Lexer, stack *[]Object) Object {
+func (u *Updater) parseIndirect(lex *Lexer, stack *[]Object) (Object, error) {
 	lenStack := len(*stack)
 	if lenStack < 2 {
-		return NewError("missing object ID pair")
+		return newError("missing object ID pair")
 	}
 
 	n := (*stack)[lenStack-2]
@@ -512,14 +510,14 @@ func (u *Updater) parseIndirect(lex *Lexer, stack *[]Object) Object {
 	*stack = (*stack)[:lenStack-2]
 
 	if !g.IsUint() || !n.IsUint() {
-		return NewError("invalid object ID pair")
+		return newError("invalid object ID pair")
 	}
 
 	var inner []Object
 	for {
-		object := u.parse(lex, &inner)
+		object, _ := u.parse(lex, &inner)
 		if object.Kind == End {
-			return NewError("object doesn't end")
+			return newError("object doesn't end")
 		}
 		if object.Kind == Keyword && object.String == "endobj" {
 			break
@@ -527,15 +525,15 @@ func (u *Updater) parseIndirect(lex *Lexer, stack *[]Object) Object {
 		inner = append(inner, object)
 	}
 	if len(inner) != 1 {
-		return NewError("indirect objects must contain exactly one object")
+		return newError("indirect objects must contain exactly one object")
 	}
-	return NewIndirect(inner[0], uint(n.Number), uint(g.Number))
+	return NewIndirect(inner[0], uint(n.Number), uint(g.Number)), nil
 }
 
-func (u *Updater) parseR(stack *[]Object) Object {
+func (u *Updater) parseR(stack *[]Object) (Object, error) {
 	lenStack := len(*stack)
 	if lenStack < 2 {
-		return NewError("missing reference ID pair")
+		return newError("missing reference ID pair")
 	}
 
 	n := (*stack)[lenStack-2]
@@ -543,14 +541,16 @@ func (u *Updater) parseR(stack *[]Object) Object {
 	*stack = (*stack)[:lenStack-2]
 
 	if !g.IsUint() || !n.IsUint() {
-		return NewError("invalid reference ID pair")
+		return newError("invalid reference ID pair")
 	}
-	return NewReference(uint(n.Number), uint(g.Number))
+	return NewReference(uint(n.Number), uint(g.Number)), nil
 }
 
-/// parse reads an object at the lexer's position. Not a strict parser.
-func (u *Updater) parse(lex *Lexer, stack *[]Object) Object {
-	switch token := lex.Next(); token.Kind {
+// parse reads an object at the lexer's position. Not a strict parser.
+//
+// TODO(p): We should fix all uses of this not to eat the error.
+func (u *Updater) parse(lex *Lexer, stack *[]Object) (Object, error) {
+	switch token, err := lex.Next(); token.Kind {
 	case NL, Comment:
 		// These are not important to parsing,
 		// not even for this procedure's needs.
@@ -558,22 +558,22 @@ func (u *Updater) parse(lex *Lexer, stack *[]Object) Object {
 	case BArray:
 		var array []Object
 		for {
-			object := u.parse(lex, &array)
+			object, _ := u.parse(lex, &array)
 			if object.Kind == End {
-				return NewError("array doesn't end")
+				return newError("array doesn't end")
 			}
 			if object.Kind == EArray {
 				break
 			}
 			array = append(array, object)
 		}
-		return NewArray(array)
+		return NewArray(array), nil
 	case BDict:
 		var array []Object
 		for {
-			object := u.parse(lex, &array)
+			object, _ := u.parse(lex, &array)
 			if object.Kind == End {
-				return NewError("dictionary doesn't end")
+				return newError("dictionary doesn't end")
 			}
 			if object.Kind == EDict {
 				break
@@ -581,16 +581,16 @@ func (u *Updater) parse(lex *Lexer, stack *[]Object) Object {
 			array = append(array, object)
 		}
 		if len(array)%2 != 0 {
-			return NewError("unbalanced dictionary")
+			return newError("unbalanced dictionary")
 		}
 		dict := make(map[string]Object)
 		for i := 0; i < len(array); i += 2 {
 			if array[i].Kind != Name {
-				return NewError("invalid dictionary key type")
+				return newError("invalid dictionary key type")
 			}
 			dict[array[i].String] = array[i+1]
 		}
-		return NewDict(dict)
+		return NewDict(dict), nil
 	case Keyword:
 		// Appears in the document body, typically needs
 		// to access the cross-reference table.
@@ -600,7 +600,7 @@ func (u *Updater) parse(lex *Lexer, stack *[]Object) Object {
 		// streams can use the Object.String member.
 		switch token.String {
 		case "stream":
-			return NewError("streams are not supported yet")
+			return newError("streams are not supported yet")
 		case "obj":
 			return u.parseIndirect(lex, stack)
 		case "R":
@@ -608,18 +608,18 @@ func (u *Updater) parse(lex *Lexer, stack *[]Object) Object {
 		}
 		fallthrough
 	default:
-		return token
+		return token, err
 	}
 }
 
 func (u *Updater) loadXref(lex *Lexer, loadedEntries map[uint]struct{}) error {
 	var throwawayStack []Object
-	if keyword := u.parse(lex,
+	if keyword, _ := u.parse(lex,
 		&throwawayStack); keyword.Kind != Keyword || keyword.String != "xref" {
 		return errors.New("invalid xref table")
 	}
 	for {
-		object := u.parse(lex, &throwawayStack)
+		object, _ := u.parse(lex, &throwawayStack)
 		if object.Kind == End {
 			return errors.New("unexpected EOF while looking for the trailer")
 		}
@@ -627,16 +627,16 @@ func (u *Updater) loadXref(lex *Lexer, loadedEntries map[uint]struct{}) error {
 			break
 		}
 
-		second := u.parse(lex, &throwawayStack)
+		second, _ := u.parse(lex, &throwawayStack)
 		if !object.IsUint() || !second.IsUint() {
 			return errors.New("invalid xref section header")
 		}
 
 		start, count := uint(object.Number), uint(second.Number)
 		for i := uint(0); i < count; i++ {
-			off := u.parse(lex, &throwawayStack)
-			gen := u.parse(lex, &throwawayStack)
-			key := u.parse(lex, &throwawayStack)
+			off, _ := u.parse(lex, &throwawayStack)
+			gen, _ := u.parse(lex, &throwawayStack)
+			key, _ := u.parse(lex, &throwawayStack)
 			if !off.IsInteger() || off.Number < 0 ||
 				off.Number > float64(len(u.Document)) ||
 				!gen.IsInteger() || gen.Number < 0 || gen.Number > 65535 ||
@@ -710,7 +710,7 @@ func (u *Updater) Initialize() error {
 			return err
 		}
 
-		trailer := u.parse(&lex, &throwawayStack)
+		trailer, _ := u.parse(&lex, &throwawayStack)
 		if trailer.Kind != Dict {
 			return errors.New("invalid trailer dictionary")
 		}
@@ -742,30 +742,32 @@ func (u *Updater) Initialize() error {
 
 // Get retrieves an object by its number and generation--may return
 // Nil or End with an error.
-func (u *Updater) Get(n, generation uint) Object {
+//
+// TODO(p): We should fix all uses of this not to eat the error.
+func (u *Updater) Get(n, generation uint) (Object, error) {
 	if n >= u.xrefSize {
-		return New(Nil)
+		return New(Nil), nil
 	}
 
 	ref := u.xref[n]
 	if !ref.nonfree || ref.generation != generation ||
 		ref.offset >= int64(len(u.Document)) {
-		return New(Nil)
+		return New(Nil), nil
 	}
 
 	lex := Lexer{u.Document[ref.offset:]}
 	var stack []Object
 	for {
-		object := u.parse(&lex, &stack)
+		object, err := u.parse(&lex, &stack)
 		if object.Kind == End {
-			return object
+			return object, err
 		}
 		if object.Kind != Indirect {
 			stack = append(stack, object)
 		} else if object.N != n || object.Generation != generation {
-			return NewError("object mismatch")
+			return newError("object mismatch")
 		} else {
-			return object.Array[0]
+			return object.Array[0], nil
 		}
 	}
 }
@@ -883,7 +885,7 @@ func NewDate(ts time.Time) Object {
 
 // GetFirstPage retrieves the first page of the document or a Nil object.
 func GetFirstPage(pdf *Updater, nodeN, nodeGeneration uint) Object {
-	obj := pdf.Get(nodeN, nodeGeneration)
+	obj, _ := pdf.Get(nodeN, nodeGeneration)
 	if obj.Kind != Dict {
 		return New(Nil)
 	}
@@ -1104,7 +1106,7 @@ func Sign(document []byte, key crypto.PrivateKey, certs []*x509.Certificate) (
 	if !ok || rootRef.Kind != Reference {
 		return nil, errors.New("trailer does not contain a reference to Root")
 	}
-	root := pdf.Get(rootRef.N, rootRef.Generation)
+	root, _ := pdf.Get(rootRef.N, rootRef.Generation)
 	if root.Kind != Dict {
 		return nil, errors.New("invalid Root dictionary reference")
 	}
