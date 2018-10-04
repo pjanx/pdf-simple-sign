@@ -65,8 +65,6 @@ const (
 // Object is a PDF token/object thingy.  Objects may be composed either from
 // one or a sequence of tokens. The PDF Reference doesn't actually speak
 // of tokens.
-//
-// TODO(p): We probably want constructors like NewString, NewBool, NewArray, ...
 type Object struct {
 	Kind ObjectKind
 
@@ -91,6 +89,48 @@ func (o *Object) IsInteger() bool {
 // IsUint checks if the PDF object is an integer number that fits into a uint.
 func (o *Object) IsUint() bool {
 	return o.IsInteger() && o.Number >= 0 && o.Number <= float64(^uint(0))
+}
+
+// A slew of constructors that will hopefully get all inlined.
+// TODO(p): We should probably ditch NewError for multiple return values.
+// It could be a private function that returns New(End) and error.
+
+func NewEOF() Object             { return Object{Kind: End} }
+func NewError(e string) Object   { return Object{Kind: End, String: e} }
+func NewComment(c string) Object { return Object{Kind: Comment, String: c} }
+func NewKeyword(k string) Object { return Object{Kind: Keyword, String: k} }
+func New(kind ObjectKind) Object { return Object{Kind: kind} }
+
+func NewBool(b bool) Object {
+	var b64 float64
+	if b {
+		b64 = 1
+	}
+	return Object{Kind: Bool, Number: b64}
+}
+
+func NewNumeric(n float64) Object { return Object{Kind: Numeric, Number: n} }
+func NewName(n string) Object     { return Object{Kind: Name, String: n} }
+func NewString(s string) Object   { return Object{Kind: String, String: s} }
+
+func NewArray(a []Object) Object {
+	return Object{Kind: Array, Array: a}
+}
+
+func NewDict(d map[string]Object) Object {
+	if d == nil {
+		d = make(map[string]Object)
+	}
+	return Object{Kind: Dict, Dict: d}
+}
+
+func NewIndirect(o Object, n, generation uint) Object {
+	return Object{Kind: Indirect, N: n, Generation: generation,
+		Array: []Object{o}}
+}
+
+func NewReference(n, generation uint) Object {
+	return Object{Kind: Reference, N: n, Generation: generation}
 }
 
 // -----------------------------------------------------------------------------
@@ -171,7 +211,7 @@ func (lex *Lexer) string() Object {
 	for {
 		ch, ok := lex.read()
 		if !ok {
-			return Object{Kind: End, String: "unexpected end of string"}
+			return NewError("unexpected end of string")
 		}
 		if lex.eatNewline(ch) {
 			ch = '\n'
@@ -183,7 +223,7 @@ func (lex *Lexer) string() Object {
 			}
 		} else if ch == '\\' {
 			if ch, ok = lex.read(); !ok {
-				return Object{Kind: End, String: "unexpected end of string"}
+				return NewError("unexpected end of string")
 			} else if lex.eatNewline(ch) {
 				continue
 			} else {
@@ -192,7 +232,7 @@ func (lex *Lexer) string() Object {
 		}
 		value = append(value, ch)
 	}
-	return Object{Kind: String, String: string(value)}
+	return NewString(string(value))
 }
 
 func (lex *Lexer) stringHex() Object {
@@ -200,11 +240,11 @@ func (lex *Lexer) stringHex() Object {
 	for {
 		ch, ok := lex.read()
 		if !ok {
-			return Object{Kind: End, String: "unexpected end of hex string"}
+			return NewError("unexpected end of hex string")
 		} else if ch == '>' {
 			break
 		} else if strings.IndexByte(hexAlphabet, ch) < 0 {
-			return Object{Kind: End, String: "invalid hex string"}
+			return NewError("invalid hex string")
 		} else if buf = append(buf, ch); len(buf) == 2 {
 			u, _ := strconv.ParseUint(string(buf), 16, 8)
 			value = append(value, byte(u))
@@ -215,7 +255,7 @@ func (lex *Lexer) stringHex() Object {
 		u, _ := strconv.ParseUint(string(buf)+"0", 16, 8)
 		value = append(value, byte(u))
 	}
-	return Object{Kind: String, String: string(value)}
+	return NewString(string(value))
 }
 
 func (lex *Lexer) name() Object {
@@ -237,7 +277,7 @@ func (lex *Lexer) name() Object {
 				lex.read()
 			}
 			if len(hexa) != 2 {
-				return Object{Kind: End, String: "invalid name hexa escape"}
+				return NewError("invalid name hexa escape")
 			}
 			u, _ := strconv.ParseUint(string(value), 16, 8)
 			ch = byte(u)
@@ -245,9 +285,9 @@ func (lex *Lexer) name() Object {
 		value = append(value, ch)
 	}
 	if len(value) == 0 {
-		return Object{Kind: End, String: "unexpected end of name"}
+		return NewError("unexpected end of name")
 	}
-	return Object{Kind: Name, String: string(value)}
+	return NewName(string(value))
 }
 
 func (lex *Lexer) comment() Object {
@@ -260,7 +300,7 @@ func (lex *Lexer) comment() Object {
 		value = append(value, ch)
 		lex.read()
 	}
-	return Object{Kind: Comment, String: string(value)}
+	return NewComment(string(value))
 }
 
 // XXX: Maybe invalid numbers should rather be interpreted as keywords.
@@ -287,16 +327,16 @@ func (lex *Lexer) number() Object {
 		lex.read()
 	}
 	if !digits {
-		return Object{Kind: End, String: "invalid number"}
+		return NewError("invalid number")
 	}
 	f, _ := strconv.ParseFloat(string(value), 64)
-	return Object{Kind: Numeric, Number: f}
+	return NewNumeric(f)
 }
 
 func (lex *Lexer) Next() Object {
 	ch, ok := lex.peek()
 	if !ok {
-		return Object{Kind: End}
+		return NewEOF()
 	}
 	if strings.IndexByte("-0123456789.", ch) >= 0 {
 		return lex.number()
@@ -315,13 +355,13 @@ func (lex *Lexer) Next() Object {
 	switch v := string(value); v {
 	case "":
 	case "null":
-		return Object{Kind: Nil}
+		return New(Nil)
 	case "true":
-		return Object{Kind: Bool, Number: 1}
+		return NewBool(true)
 	case "false":
-		return Object{Kind: Bool, Number: 0}
+		return NewBool(false)
 	default:
-		return Object{Kind: Keyword, String: v}
+		return NewKeyword(v)
 	}
 
 	switch ch, _ := lex.read(); ch {
@@ -332,29 +372,29 @@ func (lex *Lexer) Next() Object {
 	case '(':
 		return lex.string()
 	case '[':
-		return Object{Kind: BArray}
+		return New(BArray)
 	case ']':
-		return Object{Kind: EArray}
+		return New(EArray)
 	case '<':
 		if ch, _ := lex.peek(); ch == '<' {
 			lex.read()
-			return Object{Kind: BDict}
+			return New(BDict)
 		}
 		return lex.stringHex()
 	case '>':
 		if ch, _ := lex.peek(); ch == '>' {
 			lex.read()
-			return Object{Kind: EDict}
+			return New(EDict)
 		}
-		return Object{Kind: End, String: "unexpected '>'"}
+		return NewError("unexpected '>'")
 	default:
 		if lex.eatNewline(ch) {
-			return Object{Kind: NL}
+			return New(NL)
 		}
 		if strings.IndexByte(whitespace, ch) >= 0 {
 			return lex.Next()
 		}
-		return Object{Kind: End, String: "unexpected input"}
+		return NewError("unexpected input")
 	}
 }
 
@@ -464,7 +504,7 @@ type Updater struct {
 func (u *Updater) parseIndirect(lex *Lexer, stack *[]Object) Object {
 	lenStack := len(*stack)
 	if lenStack < 2 {
-		return Object{Kind: End, String: "missing object ID pair"}
+		return NewError("missing object ID pair")
 	}
 
 	n := (*stack)[lenStack-2]
@@ -472,28 +512,30 @@ func (u *Updater) parseIndirect(lex *Lexer, stack *[]Object) Object {
 	*stack = (*stack)[:lenStack-2]
 
 	if !g.IsUint() || !n.IsUint() {
-		return Object{Kind: End, String: "invalid object ID pair"}
+		return NewError("invalid object ID pair")
 	}
 
-	obj := Object{
-		Kind: Indirect, N: uint(n.Number), Generation: uint(g.Number)}
+	var inner []Object
 	for {
-		object := u.parse(lex, &obj.Array)
+		object := u.parse(lex, &inner)
 		if object.Kind == End {
-			return Object{Kind: End, String: "object doesn't end"}
+			return NewError("object doesn't end")
 		}
 		if object.Kind == Keyword && object.String == "endobj" {
 			break
 		}
-		obj.Array = append(obj.Array, object)
+		inner = append(inner, object)
 	}
-	return obj
+	if len(inner) != 1 {
+		return NewError("indirect objects must contain exactly one object")
+	}
+	return NewIndirect(inner[0], uint(n.Number), uint(g.Number))
 }
 
 func (u *Updater) parseR(stack *[]Object) Object {
 	lenStack := len(*stack)
 	if lenStack < 2 {
-		return Object{Kind: End, String: "missing reference ID pair"}
+		return NewError("missing reference ID pair")
 	}
 
 	n := (*stack)[lenStack-2]
@@ -501,10 +543,9 @@ func (u *Updater) parseR(stack *[]Object) Object {
 	*stack = (*stack)[:lenStack-2]
 
 	if !g.IsUint() || !n.IsUint() {
-		return Object{Kind: End, String: "invalid reference ID pair"}
+		return NewError("invalid reference ID pair")
 	}
-	return Object{
-		Kind: Reference, N: uint(n.Number), Generation: uint(g.Number)}
+	return NewReference(uint(n.Number), uint(g.Number))
 }
 
 /// parse reads an object at the lexer's position. Not a strict parser.
@@ -519,20 +560,20 @@ func (u *Updater) parse(lex *Lexer, stack *[]Object) Object {
 		for {
 			object := u.parse(lex, &array)
 			if object.Kind == End {
-				return Object{Kind: End, String: "array doesn't end"}
+				return NewError("array doesn't end")
 			}
 			if object.Kind == EArray {
 				break
 			}
 			array = append(array, object)
 		}
-		return Object{Kind: Array, Array: array}
+		return NewArray(array)
 	case BDict:
 		var array []Object
 		for {
 			object := u.parse(lex, &array)
 			if object.Kind == End {
-				return Object{Kind: End, String: "dictionary doesn't end"}
+				return NewError("dictionary doesn't end")
 			}
 			if object.Kind == EDict {
 				break
@@ -540,17 +581,16 @@ func (u *Updater) parse(lex *Lexer, stack *[]Object) Object {
 			array = append(array, object)
 		}
 		if len(array)%2 != 0 {
-			return Object{Kind: End, String: "unbalanced dictionary"}
+			return NewError("unbalanced dictionary")
 		}
 		dict := make(map[string]Object)
 		for i := 0; i < len(array); i += 2 {
 			if array[i].Kind != Name {
-				return Object{
-					Kind: End, String: "invalid dictionary key type"}
+				return NewError("invalid dictionary key type")
 			}
 			dict[array[i].String] = array[i+1]
 		}
-		return Object{Kind: Dict, Dict: dict}
+		return NewDict(dict)
 	case Keyword:
 		// Appears in the document body, typically needs
 		// to access the cross-reference table.
@@ -560,7 +600,7 @@ func (u *Updater) parse(lex *Lexer, stack *[]Object) Object {
 		// streams can use the Object.String member.
 		switch token.String {
 		case "stream":
-			return Object{Kind: End, String: "streams are not supported yet"}
+			return NewError("streams are not supported yet")
 		case "obj":
 			return u.parseIndirect(lex, stack)
 		case "R":
@@ -690,8 +730,7 @@ func (u *Updater) Initialize() error {
 		xrefOffset = int64(prevOffset.Number)
 	}
 
-	u.Trailer["Prev"] = Object{
-		Kind: Numeric, Number: float64(lastXrefOffset)}
+	u.Trailer["Prev"] = NewNumeric(float64(lastXrefOffset))
 
 	lastSize, ok := u.Trailer["Size"]
 	if !ok || !lastSize.IsInteger() || lastSize.Number <= 0 {
@@ -705,13 +744,13 @@ func (u *Updater) Initialize() error {
 // Nil or End with an error.
 func (u *Updater) Get(n, generation uint) Object {
 	if n >= u.xrefSize {
-		return Object{Kind: Nil}
+		return New(Nil)
 	}
 
 	ref := u.xref[n]
 	if !ref.nonfree || ref.generation != generation ||
 		ref.offset >= int64(len(u.Document)) {
-		return Object{Kind: Nil}
+		return New(Nil)
 	}
 
 	lex := Lexer{u.Document[ref.offset:]}
@@ -724,7 +763,7 @@ func (u *Updater) Get(n, generation uint) Object {
 		if object.Kind != Indirect {
 			stack = append(stack, object)
 		} else if object.N != n || object.Generation != generation {
-			return Object{Kind: End, String: "object mismatch"}
+			return NewError("object mismatch")
 		} else {
 			return object.Array[0]
 		}
@@ -819,8 +858,8 @@ func (u *Updater) FlushUpdates() {
 		}
 	}
 
-	u.Trailer["Size"] = Object{Kind: Numeric, Number: float64(u.xrefSize)}
-	trailer := Object{Kind: Dict, Dict: u.Trailer}
+	u.Trailer["Size"] = NewNumeric(float64(u.xrefSize))
+	trailer := NewDict(u.Trailer)
 
 	fmt.Fprintf(buf, "trailer\n%s\nstartxref\n%d\n%%%%EOF\n",
 		trailer.Serialize(), startXref)
@@ -839,14 +878,14 @@ func NewDate(ts time.Time) Object {
 	} else {
 		buf = append(buf, 'Z')
 	}
-	return Object{Kind: String, String: string(buf)}
+	return NewString(string(buf))
 }
 
 // GetFirstPage retrieves the first page of the document or a Nil object.
 func GetFirstPage(pdf *Updater, nodeN, nodeGeneration uint) Object {
 	obj := pdf.Get(nodeN, nodeGeneration)
 	if obj.Kind != Dict {
-		return Object{Kind: Nil}
+		return New(Nil)
 	}
 
 	// Out of convenience; these aren't filled normally.
@@ -854,11 +893,11 @@ func GetFirstPage(pdf *Updater, nodeN, nodeGeneration uint) Object {
 	obj.Generation = nodeGeneration
 
 	if typ, ok := obj.Dict["Type"]; !ok || typ.Kind != Name {
-		return Object{Kind: Nil}
+		return New(Nil)
 	} else if typ.String == "Page" {
 		return obj
 	} else if typ.String != "Pages" {
-		return Object{Kind: Nil}
+		return New(Nil)
 	}
 
 	// XXX: Technically speaking, this may be an indirect reference.
@@ -867,7 +906,7 @@ func GetFirstPage(pdf *Updater, nodeN, nodeGeneration uint) Object {
 	kids, ok := obj.Dict["Kids"]
 	if !ok || kids.Kind != Array || len(kids.Array) == 0 ||
 		kids.Array[0].Kind != Reference {
-		return Object{Kind: Nil}
+		return New(Nil)
 	}
 
 	// XXX: Nothing prevents us from recursing in an evil circular graph.
@@ -1096,22 +1135,19 @@ func Sign(document []byte, key crypto.PrivateKey, certs []*x509.Certificate) (
 		signLen += 2
 	})
 
-	sigfield := Object{Kind: Dict, Dict: map[string]Object{
+	sigfield := NewDict(map[string]Object{
 		// 8.6.3 Field Types - Signature Fields
-		"FT": {Kind: Name, String: "Sig"},
-		"V":  {Kind: Reference, N: sigdictN, Generation: 0},
+		"FT": NewName("Sig"),
+		"V":  NewReference(sigdictN, 0),
 		// 8.4.5 Annotations Types - Widget Annotations
 		// We can merge the Signature Annotation and omit Kids here.
-		"Subtype": {Kind: Name, String: "Widget"},
-		"F":       {Kind: Numeric, Number: 2 /* Hidden */},
-		"T":       {Kind: String, String: "Signature1"},
-		"Rect": {Kind: Array, Array: []Object{
-			{Kind: Numeric, Number: 0},
-			{Kind: Numeric, Number: 0},
-			{Kind: Numeric, Number: 0},
-			{Kind: Numeric, Number: 0},
-		}},
-	}}
+		"Subtype": NewName("Widget"),
+		"F":       NewNumeric(2 /* Hidden */),
+		"T":       NewString("Signature1"),
+		"Rect": NewArray([]Object{
+			NewNumeric(0), NewNumeric(0), NewNumeric(0), NewNumeric(0),
+		}),
+	})
 
 	sigfieldN := pdf.Allocate()
 	pdf.Update(sigfieldN, func(buf BytesWriter) {
@@ -1130,10 +1166,9 @@ func Sign(document []byte, key crypto.PrivateKey, certs []*x509.Certificate) (
 	// XXX: Assuming this won't be an indirectly referenced array.
 	annots := page.Dict["Annots"]
 	if annots.Kind != Array {
-		annots = Object{Kind: Array}
+		annots = NewArray(nil)
 	}
-	annots.Array = append(annots.Array, Object{
-		Kind: Reference, N: sigfieldN, Generation: 0})
+	annots.Array = append(annots.Array, NewReference(sigfieldN, 0))
 
 	page.Dict["Annots"] = annots
 	pdf.Update(page.N, func(buf BytesWriter) {
@@ -1142,19 +1177,16 @@ func Sign(document []byte, key crypto.PrivateKey, certs []*x509.Certificate) (
 
 	// 8.6.1 Interactive Form Dictionary
 	// XXX: Assuming there are no forms already, overwriting everything.
-	root.Dict["AcroForm"] = Object{Kind: Dict, Dict: map[string]Object{
-		"Fields": {Kind: Array, Array: []Object{
-			{Kind: Reference, N: sigfieldN, Generation: 0},
-		}},
-		"SigFlags": {Kind: Numeric,
-			Number: 3 /* SignaturesExist | AppendOnly */},
-	}}
+	root.Dict["AcroForm"] = NewDict(map[string]Object{
+		"Fields":   NewArray([]Object{NewReference(sigfieldN, 0)}),
+		"SigFlags": NewNumeric(3 /* SignaturesExist | AppendOnly */),
+	})
 
 	// Upgrade the document version for SHA-256 etc.
 	// XXX: Assuming that it's not newer than 1.6 already--while Cairo can't
 	// currently use a newer version that 1.5, it's not a bad idea to use
 	// cairo_pdf_surface_restrict_to_version().
-	root.Dict["Version"] = Object{Kind: Name, String: "1.6"}
+	root.Dict["Version"] = NewName("1.6")
 	pdf.Update(rootRef.N, func(buf BytesWriter) {
 		buf.WriteString(root.Serialize())
 	})
