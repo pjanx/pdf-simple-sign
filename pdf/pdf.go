@@ -829,8 +829,8 @@ func (u *Updater) FlushUpdates() {
 
 // -----------------------------------------------------------------------------
 
-// PdfDate makes a PDF object representing the given point in time.
-func PdfDate(ts time.Time) Object {
+// NewDate makes a PDF object representing the given point in time.
+func NewDate(ts time.Time) Object {
 	buf := ts.AppendFormat(nil, "D:20060102150405")
 	// "Z07'00'" doesn't work, we need to do some of it manually.
 	if _, offset := ts.Zone(); offset != 0 {
@@ -842,8 +842,8 @@ func PdfDate(ts time.Time) Object {
 	return Object{Kind: String, String: string(buf)}
 }
 
-// PdfGetFirstPage retrieves the first page of the document or a Nil object.
-func PdfGetFirstPage(pdf *Updater, nodeN, nodeGeneration uint) Object {
+// GetFirstPage retrieves the first page of the document or a Nil object.
+func GetFirstPage(pdf *Updater, nodeN, nodeGeneration uint) Object {
 	obj := pdf.Get(nodeN, nodeGeneration)
 	if obj.Kind != Dict {
 		return Object{Kind: Nil}
@@ -871,7 +871,7 @@ func PdfGetFirstPage(pdf *Updater, nodeN, nodeGeneration uint) Object {
 	}
 
 	// XXX: Nothing prevents us from recursing in an evil circular graph.
-	return PdfGetFirstPage(pdf, kids.Array[0].N, kids.Array[0].Generation)
+	return GetFirstPage(pdf, kids.Array[0].N, kids.Array[0].Generation)
 }
 
 // -----------------------------------------------------------------------------
@@ -1039,7 +1039,13 @@ func FillInSignature(document []byte, signOff, signLen int,
 	return nil
 }
 
+// https://www.adobe.com/devnet-docs/acrobatetk/tools/DigSig/Acrobat_DigitalSignatures_in_PDF.pdf
+// https://www.adobe.com/content/dam/acom/en/devnet/acrobat/pdfs/pdf_reference_1-7.pdf
+// https://www.adobe.com/content/dam/acom/en/devnet/acrobat/pdfs/PPKAppearances.pdf
+
 // Sign signs the given document, growing and returning the passed-in slice.
+// There must be at least one certificate, matching the private key.
+// The certificates must form a chain.
 //
 // The presumption here is that the document is valid and that it doesn't
 // employ cross-reference streams from PDF 1.5, or at least constitutes
@@ -1048,11 +1054,7 @@ func FillInSignature(document []byte, signOff, signLen int,
 //
 // Carelessly assumes that the version of the original document is at most
 // PDF 1.6.
-//
-// https://www.adobe.com/devnet-docs/acrobatetk/tools/DigSig/Acrobat_DigitalSignatures_in_PDF.pdf
-// https://www.adobe.com/content/dam/acom/en/devnet/acrobat/pdfs/pdf_reference_1-7.pdf
-// https://www.adobe.com/content/dam/acom/en/devnet/acrobat/pdfs/PPKAppearances.pdf
-func Sign(document []byte, key crypto.PublicKey, certs []*x509.Certificate) (
+func Sign(document []byte, key crypto.PrivateKey, certs []*x509.Certificate) (
 	[]byte, error) {
 	pdf := &Updater{Document: document}
 	if err := pdf.Initialize(); err != nil {
@@ -1074,7 +1076,7 @@ func Sign(document []byte, key crypto.PublicKey, certs []*x509.Certificate) (
 	pdf.Update(sigdictN, func(buf BytesWriter) {
 		// The timestamp is important for Adobe Acrobat Reader DC.
 		// The ideal would be to use RFC 3161.
-		now := PdfDate(time.Now())
+		now := NewDate(time.Now())
 		buf.WriteString("<< /Type/Sig /Filter/Adobe.PPKLite" +
 			" /SubFilter/adbe.pkcs7.detached\n" +
 			"   /M" + now.Serialize() + " /ByteRange ")
@@ -1120,7 +1122,7 @@ func Sign(document []byte, key crypto.PublicKey, certs []*x509.Certificate) (
 	if !ok || pagesRef.Kind != Reference {
 		return nil, errors.New("invalid Pages reference")
 	}
-	page := PdfGetFirstPage(pdf, pagesRef.N, pagesRef.Generation)
+	page := GetFirstPage(pdf, pagesRef.N, pagesRef.Generation)
 	if page.Kind != Dict {
 		return nil, errors.New("invalid or unsupported page tree")
 	}
