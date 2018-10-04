@@ -795,7 +795,8 @@ type BytesWriter interface {
 	WriteString(s string) (n int, err error)
 }
 
-// Update appends an updated object to the end of the document.
+// Update appends an updated object to the end of the document. The fill
+// callback must write exactly one PDF object.
 func (u *Updater) Update(n uint, fill func(buf BytesWriter)) {
 	oldRef := u.xref[n]
 	u.updated[n] = struct{}{}
@@ -880,7 +881,8 @@ func NewDate(ts time.Time) Object {
 	return NewString(string(buf))
 }
 
-// GetFirstPage retrieves the first page of the document or a Nil object.
+// GetFirstPage retrieves the first page of the given page (sub)tree reference,
+// or returns a Nil object if unsuccessful.
 func (u *Updater) GetFirstPage(nodeN, nodeGeneration uint) Object {
 	obj, _ := u.Get(nodeN, nodeGeneration)
 	if obj.Kind != Dict {
@@ -1126,7 +1128,7 @@ func Sign(document []byte,
 		buf.WriteString("\n   /Contents <")
 
 		signOff = buf.Len()
-		signLen = 8192 // cert, digest, encripted digest, ...
+		signLen = 8192 // cert, digest, encrypted digest, ...
 		buf.Write(bytes.Repeat([]byte{'0'}, signLen))
 		buf.WriteString("> >>")
 

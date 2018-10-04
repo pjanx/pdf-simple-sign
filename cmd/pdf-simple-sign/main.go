@@ -64,9 +64,9 @@ func main() {
 		die(3, "%s", err)
 	}
 	if pdfDocument, err = pdf.Sign(pdfDocument, key, certs); err != nil {
-		die(2, "error: %s", err)
+		die(4, "error: %s", err)
 	}
 	if err = ioutil.WriteFile(outputPath, pdfDocument, 0666); err != nil {
-		die(3, "%s", err)
+		die(5, "%s", err)
 	}
 }
