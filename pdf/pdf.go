@@ -68,16 +68,11 @@ const (
 type Object struct {
 	Kind ObjectKind
 
-	// Comment/Keyword/Name/String
-	String string
-	// Bool, Numeric
-	Number float64
-	// Array, Indirect
-	Array []Object
-	// Dict, in the future also Stream
-	Dict map[string]Object
-	// Indirect, Reference
-	N, Generation uint
+	String        string            // Comment/Keyword/Name/String
+	Number        float64           // Bool, Numeric
+	Array         []Object          // Array, Indirect
+	Dict          map[string]Object // Dict, in the future also Stream
+	N, Generation uint              // Indirect, Reference
 }
 
 // IsInteger checks if the PDF object is an integer number.
@@ -93,9 +88,11 @@ func (o *Object) IsUint() bool {
 
 // A slew of constructors that will hopefully get all inlined.
 
+// New returns a new Object of the given kind, with default values.
+func New(kind ObjectKind) Object { return Object{Kind: kind} }
+
 func NewComment(c string) Object { return Object{Kind: Comment, String: c} }
 func NewKeyword(k string) Object { return Object{Kind: Keyword, String: k} }
-func New(kind ObjectKind) Object { return Object{Kind: kind} }
 
 func NewBool(b bool) Object {
 	var b64 float64
@@ -884,8 +881,8 @@ func NewDate(ts time.Time) Object {
 }
 
 // GetFirstPage retrieves the first page of the document or a Nil object.
-func GetFirstPage(pdf *Updater, nodeN, nodeGeneration uint) Object {
-	obj, _ := pdf.Get(nodeN, nodeGeneration)
+func (u *Updater) GetFirstPage(nodeN, nodeGeneration uint) Object {
+	obj, _ := u.Get(nodeN, nodeGeneration)
 	if obj.Kind != Dict {
 		return New(Nil)
 	}
@@ -912,7 +909,7 @@ func GetFirstPage(pdf *Updater, nodeN, nodeGeneration uint) Object {
 	}
 
 	// XXX: Nothing prevents us from recursing in an evil circular graph.
-	return GetFirstPage(pdf, kids.Array[0].N, kids.Array[0].Generation)
+	return u.GetFirstPage(kids.Array[0].N, kids.Array[0].Generation)
 }
 
 // -----------------------------------------------------------------------------
@@ -1009,8 +1006,9 @@ func PKCS12Parse(p12 []byte, password string) (
 
 // FillInSignature signs PDF contents and writes the signature into the given
 // window that has been reserved for this specific purpose.
+// This is a very low-level function.
 func FillInSignature(document []byte, signOff, signLen int,
-	key crypto.PublicKey, certs []*x509.Certificate) error {
+	key crypto.PrivateKey, certs []*x509.Certificate) error {
 	if signOff < 0 || signOff > len(document) ||
 		signLen < 2 || signOff+signLen > len(document) {
 		return errors.New("invalid signing window")
@@ -1095,8 +1093,8 @@ func FillInSignature(document []byte, signOff, signLen int,
 //
 // Carelessly assumes that the version of the original document is at most
 // PDF 1.6.
-func Sign(document []byte, key crypto.PrivateKey, certs []*x509.Certificate) (
-	[]byte, error) {
+func Sign(document []byte,
+	key crypto.PrivateKey, certs []*x509.Certificate) ([]byte, error) {
 	pdf := &Updater{Document: document}
 	if err := pdf.Initialize(); err != nil {
 		return nil, err
@@ -1160,7 +1158,7 @@ func Sign(document []byte, key crypto.PrivateKey, certs []*x509.Certificate) (
 	if !ok || pagesRef.Kind != Reference {
 		return nil, errors.New("invalid Pages reference")
 	}
-	page := GetFirstPage(pdf, pagesRef.N, pagesRef.Generation)
+	page := pdf.GetFirstPage(pagesRef.N, pagesRef.Generation)
 	if page.Kind != Dict {
 		return nil, errors.New("invalid or unsupported page tree")
 	}
