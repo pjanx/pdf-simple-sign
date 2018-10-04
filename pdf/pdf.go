@@ -141,21 +141,21 @@ const (
 // Lexer is a basic lexical analyser for the Portable Document Format,
 // giving limited error information.
 type Lexer struct {
-	p []byte // input buffer
+	P []byte // input buffer
 }
 
 func (lex *Lexer) read() (byte, bool) {
-	if len(lex.p) > 0 {
-		ch := lex.p[0]
-		lex.p = lex.p[1:]
+	if len(lex.P) > 0 {
+		ch := lex.P[0]
+		lex.P = lex.P[1:]
 		return ch, true
 	}
 	return 0, false
 }
 
 func (lex *Lexer) peek() (byte, bool) {
-	if len(lex.p) > 0 {
-		return lex.p[0], true
+	if len(lex.P) > 0 {
+		return lex.P[0], true
 	}
 	return 0, false
 }
@@ -671,9 +671,10 @@ func (u *Updater) loadXref(lex *Lexer, loadedEntries map[uint]struct{}) error {
 
 var haystackRE = regexp.MustCompile(`(?s:.*)\sstartxref\s+(\d+)\s+%%EOF`)
 
-// Initialize builds the cross-reference table and prepares
-// a new trailer dictionary.
-func (u *Updater) Initialize() error {
+// NewUpdater initializes an Updater, building the cross-reference table and
+// preparing a new trailer dictionary.
+func NewUpdater(document []byte) (*Updater, error) {
+	u := &Updater{Document: document}
 	u.updated = make(map[uint]struct{})
 
 	// We only need to look for startxref roughly within
@@ -685,7 +686,7 @@ func (u *Updater) Initialize() error {
 
 	m := haystackRE.FindSubmatch(haystack)
 	if m == nil {
-		return errors.New("cannot find startxref")
+		return nil, errors.New("cannot find startxref")
 	}
 
 	xrefOffset, _ := strconv.ParseInt(string(m[1]), 10, 64)
@@ -696,20 +697,20 @@ func (u *Updater) Initialize() error {
 	var throwawayStack []Object
 	for {
 		if _, ok := loadedXrefs[xrefOffset]; ok {
-			return errors.New("circular xref offsets")
+			return nil, errors.New("circular xref offsets")
 		}
 		if xrefOffset >= int64(len(u.Document)) {
-			return errors.New("invalid xref offset")
+			return nil, errors.New("invalid xref offset")
 		}
 
 		lex := Lexer{u.Document[xrefOffset:]}
 		if err := u.loadXref(&lex, loadedEntries); err != nil {
-			return err
+			return nil, err
 		}
 
 		trailer, _ := u.parse(&lex, &throwawayStack)
 		if trailer.Kind != Dict {
-			return errors.New("invalid trailer dictionary")
+			return nil, errors.New("invalid trailer dictionary")
 		}
 		if len(loadedXrefs) == 0 {
 			u.Trailer = trailer.Dict
@@ -722,7 +723,7 @@ func (u *Updater) Initialize() error {
 		}
 		// FIXME: We don't check for size_t over or underflow.
 		if !prevOffset.IsInteger() {
-			return errors.New("invalid Prev offset")
+			return nil, errors.New("invalid Prev offset")
 		}
 		xrefOffset = int64(prevOffset.Number)
 	}
@@ -731,10 +732,10 @@ func (u *Updater) Initialize() error {
 
 	lastSize, ok := u.Trailer["Size"]
 	if !ok || !lastSize.IsInteger() || lastSize.Number <= 0 {
-		return errors.New("invalid or missing cross-reference table Size")
+		return nil, errors.New("invalid or missing cross-reference table Size")
 	}
 	u.xrefSize = uint(lastSize.Number)
-	return nil
+	return u, nil
 }
 
 // Get retrieves an object by its number and generation--may return
@@ -1097,8 +1098,8 @@ func FillInSignature(document []byte, signOff, signLen int,
 // PDF 1.6.
 func Sign(document []byte,
 	key crypto.PrivateKey, certs []*x509.Certificate) ([]byte, error) {
-	pdf := &Updater{Document: document}
-	if err := pdf.Initialize(); err != nil {
+	pdf, err := NewUpdater(document)
+	if err != nil {
 		return nil, err
 	}
 
