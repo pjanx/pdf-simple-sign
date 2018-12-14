@@ -691,8 +691,8 @@ func NewUpdater(document []byte) (*Updater, error) {
 
 	xrefOffset, _ := strconv.ParseInt(string(m[1]), 10, 64)
 	lastXrefOffset := xrefOffset
-	loadedXrefs := map[int64]struct{}{}
-	loadedEntries := map[uint]struct{}{}
+	loadedXrefs := make(map[int64]struct{})
+	loadedEntries := make(map[uint]struct{})
 
 	var throwawayStack []Object
 	for {
