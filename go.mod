@@ -1,6 +1,8 @@
 module janouch.name/pdf-simple-sign
 
+go 1.14
+
 require (
-	go.mozilla.org/pkcs7 v0.0.0-20181029144607-24857c352dd8
-	golang.org/x/crypto v0.0.0-20181127143415-eb0de9b17e85
+	go.mozilla.org/pkcs7 v0.0.0-20200128120323-432b2356ecb1
+	golang.org/x/crypto v0.0.0-20200728195943-123391ffb6de
 )
