@@ -342,6 +342,9 @@ public:
 
   /// Build the cross-reference table and prepare a new trailer dictionary
   std::string initialize();
+  /// Try to extract the claimed PDF version as a positive decimal number, e.g. 17 for PDF 1.7.
+  /// Returns zero on failure.
+  int version(const pdf_object& root) const;
   /// Retrieve an object by its number and generation -- may return NIL or END with an error
   pdf_object get(uint n, uint generation) const;
   /// Allocate a new object number
@@ -512,7 +515,7 @@ std::string pdf_updater::load_xref(pdf_lexer& lex, std::set<uint>& loaded_entrie
 
 std::string pdf_updater::initialize() {
   // We only need to look for startxref roughly within the last kibibyte of the document
-  static std::regex haystack_re("[\\s\\S]*\\sstartxref\\s+(\\d+)\\s+%%EOF");
+  static std::regex haystack_re(R"([\s\S]*\sstartxref\s+(\d+)\s+%%EOF)");
   std::string haystack = document.substr(document.length() < 1024 ? 0 : document.length() - 1024);
 
   std::smatch m;
@@ -558,6 +561,25 @@ std::string pdf_updater::initialize() {
 
   xref_size = last_size->second.number;
   return "";
+}
+
+int pdf_updater::version(const pdf_object& root) const {
+  auto version = root.dict.find("Version");
+  if (version != root.dict.end() && version->second.type == pdf_object::NAME) {
+    const auto& v = version->second.string;
+    if (isdigit(v[0]) && v[1] == '.' && isdigit(v[2]) && !v[3])
+      return (v[0] - '0') * 10 + (v[2] - '0');
+  }
+
+  // We only need to look for the comment roughly within the first kibibyte of the document
+  static std::regex version_re(R"((?:^|[\r\n])%(?:!PS-Adobe-\d\.\d )?PDF-(\d)\.(\d)[\r\n])");
+  std::string haystack = document.substr(0, 1024);
+
+  std::smatch m;
+  if (std::regex_search(haystack, m, version_re, std::regex_constants::match_default))
+    return std::stoul(m.str(1)) * 10 + std::stoul(m.str(2));
+
+  return 0;
 }
 
 pdf_object pdf_updater::get(uint n, uint generation) const {
@@ -806,8 +828,6 @@ error:
 /// streams from PDF 1.5, or at least constitutes a hybrid-reference file.  The results with
 /// PDF 2.0 (2017) are currently unknown as the standard costs money.
 ///
-/// Carelessly assumes that the version of the original document is at most PDF 1.6.
-///
 /// https://www.adobe.com/devnet-docs/acrobatetk/tools/DigSig/Acrobat_DigitalSignatures_in_PDF.pdf
 /// https://www.adobe.com/content/dam/acom/en/devnet/acrobat/pdfs/pdf_reference_1-7.pdf
 /// https://www.adobe.com/content/dam/acom/en/devnet/acrobat/pdfs/PPKAppearances.pdf
@@ -892,9 +912,9 @@ static std::string pdf_sign(std::string& document) {
   }};
 
   // Upgrade the document version for SHA-256 etc.
-  // XXX assuming that it's not newer than 1.6 already -- while Cairo can't currently use a newer
-  //   version than 1.5, it's not a bad idea to use cairo_pdf_surface_restrict_to_version()
-  root.dict["Version"] = {pdf_object::NAME, "1.6"};
+  if (pdf.version(root) < 16)
+    root.dict["Version"] = {pdf_object::NAME, "1.6"};
+
   pdf.update(root_ref->second.n, [&]{ pdf.document += pdf_serialize(root); });
   pdf.flush_updates();
 

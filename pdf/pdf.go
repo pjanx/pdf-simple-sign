@@ -670,7 +670,7 @@ func (u *Updater) loadXref(lex *Lexer, loadedEntries map[uint]struct{}) error {
 
 // -----------------------------------------------------------------------------
 
-var haystackRE = regexp.MustCompile(`(?s:.*)\sstartxref\s+(\d+)\s+%%EOF`)
+var trailerRE = regexp.MustCompile(`(?s:.*)\sstartxref\s+(\d+)\s+%%EOF`)
 
 // NewUpdater initializes an Updater, building the cross-reference table and
 // preparing a new trailer dictionary.
@@ -685,7 +685,7 @@ func NewUpdater(document []byte) (*Updater, error) {
 		haystack = haystack[len(haystack)-1024:]
 	}
 
-	m := haystackRE.FindSubmatch(haystack)
+	m := trailerRE.FindSubmatch(haystack)
 	if m == nil {
 		return nil, errors.New("cannot find startxref")
 	}
@@ -737,6 +737,31 @@ func NewUpdater(document []byte) (*Updater, error) {
 	}
 	u.xrefSize = uint(lastSize.Number)
 	return u, nil
+}
+
+var versionRE = regexp.MustCompile(
+	`(?:^|[\r\n])%(?:!PS-Adobe-\d\.\d )?PDF-(\d)\.(\d)[\r\n]`)
+
+// Version extracts the claimed PDF version as a positive decimal number,
+// e.g. 17 for PDF 1.7. Returns zero on failure.
+func (u *Updater) Version(root *Object) int {
+	if version, ok := root.Dict["Version"]; ok && version.Kind == Name {
+		if v := version.String; len(v) == 3 && v[1] == '.' &&
+			v[0] >= '0' && v[0] <= '9' && v[2] >= '0' && v[2] <= '9' {
+			return int(v[0]-'0')*10 + int(v[2]-'0')
+		}
+	}
+
+	// We only need to look for the comment roughly within
+	// the first kibibyte of the document.
+	haystack := u.Document
+	if len(haystack) > 1024 {
+		haystack = haystack[:1024]
+	}
+	if m := versionRE.FindSubmatch(haystack); m != nil {
+		return int(m[1][0]-'0')*10 + int(m[2][0]-'0')
+	}
+	return 0
 }
 
 // Get retrieves an object by its number and generation--may return
@@ -1094,9 +1119,6 @@ func FillInSignature(document []byte, signOff, signLen int,
 // employ cross-reference streams from PDF 1.5, or at least constitutes
 // a hybrid-reference file. The results with PDF 2.0 (2017) are currently
 // unknown as the standard costs money.
-//
-// Carelessly assumes that the version of the original document is at most
-// PDF 1.6.
 func Sign(document []byte,
 	key crypto.PrivateKey, certs []*x509.Certificate) ([]byte, error) {
 	pdf, err := NewUpdater(document)
@@ -1195,10 +1217,10 @@ func Sign(document []byte,
 	})
 
 	// Upgrade the document version for SHA-256 etc.
-	// XXX: Assuming that it's not newer than 1.6 already--while Cairo can't
-	// currently use a newer version that 1.5, it's not a bad idea to use
-	// cairo_pdf_surface_restrict_to_version().
-	root.Dict["Version"] = NewName("1.6")
+	if pdf.Version(&root) < 16 {
+		root.Dict["Version"] = NewName("1.6")
+	}
+
 	pdf.Update(rootRef.N, func(buf BytesWriter) {
 		buf.WriteString(root.Serialize())
 	})

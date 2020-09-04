@@ -9,8 +9,6 @@ the Cairo library.  As such, it currently comes with some restrictions:
    overwritten
  * the document may not employ cross-reference streams, or must constitute
    a hybrid-reference file at least
- * the document may not be newer than PDF 1.6 already, or it will get downgraded
-   to that version
  * the signature may take at most 4 kilobytes as a compile-time limit,
    which should be enough space even for one intermediate certificate
 
