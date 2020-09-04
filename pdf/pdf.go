@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2018, Přemysl Eric Janouch <p@janouch.name>
+// Copyright (c) 2018 - 2020, Přemysl Eric Janouch <p@janouch.name>
 //
 // Permission to use, copy, modify, and/or distribute this software for any
 // purpose with or without fee is hereby granted.
@@ -32,6 +32,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/rsa"
 	"crypto/x509"
+
 	"go.mozilla.org/pkcs7"
 	"golang.org/x/crypto/pkcs12"
 )
@@ -1166,9 +1167,13 @@ func Sign(document []byte,
 		return nil, errors.New("invalid or unsupported page tree")
 	}
 
-	// XXX: Assuming this won't be an indirectly referenced array.
 	annots := page.Dict["Annots"]
 	if annots.Kind != Array {
+		// TODO(p): Indirectly referenced arrays might not be
+		// that hard to support.
+		if annots.Kind != End {
+			return nil, errors.New("unexpected Annots")
+		}
 		annots = NewArray(nil)
 	}
 	annots.Array = append(annots.Array, NewReference(sigfieldN, 0))
@@ -1179,7 +1184,11 @@ func Sign(document []byte,
 	})
 
 	// 8.6.1 Interactive Form Dictionary
-	// XXX: Assuming there are no forms already, overwriting everything.
+	if _, ok := root.Dict["AcroForm"]; ok {
+		return nil, errors.New("the document already contains forms, " +
+			"they would be overwritten")
+	}
+
 	root.Dict["AcroForm"] = NewDict(map[string]Object{
 		"Fields":   NewArray([]Object{NewReference(sigfieldN, 0)}),
 		"SigFlags": NewNumeric(3 /* SignaturesExist | AppendOnly */),

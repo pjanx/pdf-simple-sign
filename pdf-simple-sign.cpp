@@ -2,7 +2,7 @@
 //
 // pdf-simple-sign: simple PDF signer
 //
-// Copyright (c) 2017, Přemysl Eric Janouch <p@janouch.name>
+// Copyright (c) 2017 - 2020, Přemysl Eric Janouch <p@janouch.name>
 //
 // Permission to use, copy, modify, and/or distribute this software for any
 // purpose with or without fee is hereby granted.
@@ -869,15 +869,21 @@ static std::string pdf_sign(std::string& document) {
   if (page.type != pdf_object::DICT)
     return "invalid or unsupported page tree";
 
-  // XXX assuming this won't be an indirectly referenced array
   auto& annots = page.dict["Annots"];
-  if (annots.type != pdf_object::ARRAY)
+  if (annots.type != pdf_object::ARRAY) {
+    // TODO indirectly referenced arrays might not be that hard to support
+    if (annots.type != pdf_object::END)
+      return "unexpected Annots";
+
     annots = {pdf_object::ARRAY};
+  }
   annots.array.emplace_back(pdf_object::REFERENCE, sigfield_n, 0);
   pdf.update(page.n, [&]{ pdf.document += pdf_serialize(page); });
 
   // 8.6.1 Interactive Form Dictionary
-  // XXX assuming there are no forms already, overwriting everything
+  if (root.dict.count("AcroForm"))
+    return "the document already contains forms, they would be overwritten";
+
   root.dict["AcroForm"] = {std::map<std::string, pdf_object>{
     {"Fields", {std::vector<pdf_object>{
       {pdf_object::REFERENCE, sigfield_n, 0}
@@ -887,7 +893,7 @@ static std::string pdf_sign(std::string& document) {
 
   // Upgrade the document version for SHA-256 etc.
   // XXX assuming that it's not newer than 1.6 already -- while Cairo can't currently use a newer
-  //   version that 1.5, it's not a bad idea to use cairo_pdf_surface_restrict_to_version()
+  //   version than 1.5, it's not a bad idea to use cairo_pdf_surface_restrict_to_version()
   root.dict["Version"] = {pdf_object::NAME, "1.6"};
   pdf.update(root_ref->second.n, [&]{ pdf.document += pdf_serialize(root); });
   pdf.flush_updates();

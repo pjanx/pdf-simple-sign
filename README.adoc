@@ -5,8 +5,8 @@ pdf-simple-sign
 'pdf-simple-sign' is a simple PDF signer intended for documents produced by
 the Cairo library.  As such, it currently comes with some restrictions:
 
- * the document may not have any forms or signatures already, as they will be
-   overwitten
+ * the document may not have any forms or signatures already, as they would be
+   overwritten
  * the document may not employ cross-reference streams, or must constitute
    a hybrid-reference file at least
  * the document may not be newer than PDF 1.6 already, or it will get downgraded
