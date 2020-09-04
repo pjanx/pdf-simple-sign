@@ -1115,12 +1115,14 @@ func FillInSignature(document []byte, signOff, signLen int,
 // There must be at least one certificate, matching the private key.
 // The certificates must form a chain.
 //
+// A good default for the reservation is around 4096 (the value is in bytes).
+//
 // The presumption here is that the document is valid and that it doesn't
 // employ cross-reference streams from PDF 1.5, or at least constitutes
 // a hybrid-reference file. The results with PDF 2.0 (2017) are currently
 // unknown as the standard costs money.
-func Sign(document []byte,
-	key crypto.PrivateKey, certs []*x509.Certificate) ([]byte, error) {
+func Sign(document []byte, key crypto.PrivateKey, certs []*x509.Certificate,
+	reservation int) ([]byte, error) {
 	pdf, err := NewUpdater(document)
 	if err != nil {
 		return nil, err
@@ -1152,7 +1154,7 @@ func Sign(document []byte,
 		buf.WriteString("\n   /Contents <")
 
 		signOff = buf.Len()
-		signLen = 8192 // cert, digest, encrypted digest, ...
+		signLen = reservation * 2 // cert, digest, encrypted digest, ...
 		buf.Write(bytes.Repeat([]byte{'0'}, signLen))
 		buf.WriteString("> >>")
 

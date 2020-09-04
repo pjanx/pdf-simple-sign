@@ -9,8 +9,6 @@ the Cairo library.  As such, it currently comes with some restrictions:
    overwritten
  * the document may not employ cross-reference streams, or must constitute
    a hybrid-reference file at least
- * the signature may take at most 4 kilobytes as a compile-time limit,
-   which should be enough space even for one intermediate certificate
 
 The signature is attached to the first page and has no appearance.
 
@@ -36,6 +34,10 @@ Usage
 -----
 
  $ ./pdf-simple-sign document.pdf document.signed.pdf KeyAndCerts.p12 password
+
+If the signature doesn't fit within the default reservation of 4 kibibytes,
+you might need to adjust it using the `-r` option, or throw out any unnecessary
+intermediate certificates.
 
 Contributing and Support
 ------------------------

@@ -40,6 +40,7 @@
 // -------------------------------------------------------------------------------------------------
 
 using uint = unsigned int;
+using ushort = unsigned short;
 
 static std::string concatenate(const std::vector<std::string>& v, const std::string& delim) {
   std::string res;
@@ -831,7 +832,7 @@ error:
 /// https://www.adobe.com/devnet-docs/acrobatetk/tools/DigSig/Acrobat_DigitalSignatures_in_PDF.pdf
 /// https://www.adobe.com/content/dam/acom/en/devnet/acrobat/pdfs/pdf_reference_1-7.pdf
 /// https://www.adobe.com/content/dam/acom/en/devnet/acrobat/pdfs/PPKAppearances.pdf
-static std::string pdf_sign(std::string& document) {
+static std::string pdf_sign(std::string& document, ushort reservation) {
   pdf_updater pdf(document);
   auto err = pdf.initialize();
   if (!err.empty())
@@ -855,7 +856,7 @@ static std::string pdf_sign(std::string& document) {
     pdf.document.append((byterange_len = 32 /* fine for a gigabyte */), ' ');
     pdf.document.append("\n   /Contents <");
     sign_off = pdf.document.size();
-    pdf.document.append((sign_len = 8192 /* certificate, digest, encrypted digest, ... */), '0');
+    pdf.document.append((sign_len = reservation * 2), '0');
     pdf.document.append("> >>");
 
     // We actually need to exclude the hexstring quotes from signing
@@ -945,15 +946,18 @@ static void die(int status, const char* format, ...) {
 int main(int argc, char* argv[]) {
   auto invocation_name = argv[0];
   auto usage = [=]{
-    die(1, "Usage: %s [-h] INPUT-FILENAME OUTPUT-FILENAME PKCS12-PATH PKCS12-PASS",
+    die(1, "Usage: %s [-h] [-r RESERVATION] INPUT-FILENAME OUTPUT-FILENAME PKCS12-PATH PKCS12-PASS",
             invocation_name);
   };
 
   static struct option opts[] = {
     {"help", no_argument, 0, 'h'},
+    {"reservation", required_argument, 0, 'r'},
     {nullptr, 0, 0, 0},
   };
 
+  // Reserved space in bytes for the certificate, digest, encrypted digest, ...
+  long reservation = 4096;
   while (1) {
     int option_index = 0;
     auto c = getopt_long(argc, const_cast<char* const*>(argv),
@@ -961,9 +965,16 @@ int main(int argc, char* argv[]) {
     if (c == -1)
       break;
 
+    char* end = nullptr;
     switch (c) {
-    case 'h': usage(); break;
-    default: usage();
+    case 'r':
+      errno = 0, reservation = strtol(optarg, &end, 10);
+      if (errno || *end || reservation <= 0 || reservation > USHRT_MAX)
+        die(1, "%s: must be a positive number", optarg);
+      break;
+    case 'h':
+    default:
+      usage();
     }
   }
 
@@ -990,7 +1001,7 @@ int main(int argc, char* argv[]) {
     die(1, "%s: %s", input_path, strerror(errno));
   }
 
-  auto err = pdf_sign(pdf_document);
+  auto err = pdf_sign(pdf_document, ushort(reservation));
   if (!err.empty()) {
     die(2, "Error: %s", err.c_str());
   }

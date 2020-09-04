@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2018, Přemysl Eric Janouch <p@janouch.name>
+// Copyright (c) 2018 - 2020, Přemysl Eric Janouch <p@janouch.name>
 //
 // Permission to use, copy, modify, and/or distribute this software for any
 // purpose with or without fee is hereby granted.
@@ -20,8 +20,9 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
-	"janouch.name/pdf-simple-sign/pdf"
 	"os"
+
+	"janouch.name/pdf-simple-sign/pdf"
 )
 
 // #include <unistd.h>
@@ -39,9 +40,12 @@ func die(status int, format string, args ...interface{}) {
 }
 
 func usage() {
-	die(1, "Usage: %s [-h] INPUT-FILENAME OUTPUT-FILENAME "+
+	die(1, "Usage: %s [-h] [-r RESERVATION] INPUT-FILENAME OUTPUT-FILENAME "+
 		"PKCS12-PATH PKCS12-PASS", os.Args[0])
 }
+
+var reservation = flag.Int(
+	"r", 4096, "signature reservation as a number of bytes")
 
 func main() {
 	flag.Usage = usage
@@ -51,7 +55,7 @@ func main() {
 	}
 
 	inputPath, outputPath := flag.Arg(0), flag.Arg(1)
-	pdfDocument, err := ioutil.ReadFile(inputPath)
+	doc, err := ioutil.ReadFile(inputPath)
 	if err != nil {
 		die(1, "%s", err)
 	}
@@ -63,10 +67,10 @@ func main() {
 	if err != nil {
 		die(3, "%s", err)
 	}
-	if pdfDocument, err = pdf.Sign(pdfDocument, key, certs); err != nil {
+	if doc, err = pdf.Sign(doc, key, certs, *reservation); err != nil {
 		die(4, "error: %s", err)
 	}
-	if err = ioutil.WriteFile(outputPath, pdfDocument, 0666); err != nil {
+	if err = ioutil.WriteFile(outputPath, doc, 0666); err != nil {
 		die(5, "%s", err)
 	}
 }
