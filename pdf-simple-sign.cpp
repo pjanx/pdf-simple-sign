@@ -37,6 +37,8 @@
 #include <openssl/x509v3.h>
 #include <openssl/pkcs12.h>
 
+#include "config.h"
+
 // -------------------------------------------------------------------------------------------------
 
 using uint = unsigned int;
@@ -952,6 +954,7 @@ int main(int argc, char* argv[]) {
 
   static struct option opts[] = {
     {"help", no_argument, 0, 'h'},
+    {"version", no_argument, 0, 'V'},
     {"reservation", required_argument, 0, 'r'},
     {nullptr, 0, 0, 0},
   };
@@ -961,7 +964,7 @@ int main(int argc, char* argv[]) {
   while (1) {
     int option_index = 0;
     auto c = getopt_long(argc, const_cast<char* const*>(argv),
-                         "h", opts, &option_index);
+                         "hVr:", opts, &option_index);
     if (c == -1)
       break;
 
@@ -971,6 +974,9 @@ int main(int argc, char* argv[]) {
       errno = 0, reservation = strtol(optarg, &end, 10);
       if (errno || *end || reservation <= 0 || reservation > USHRT_MAX)
         die(1, "%s: must be a positive number", optarg);
+      break;
+    case 'V':
+      die(0, "%s", PROJECT_NAME " " PROJECT_VERSION);
       break;
     case 'h':
     default:
