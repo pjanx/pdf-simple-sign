@@ -1,3 +1,19 @@
+1.1 (2020-09-05)
+
+ * Make it possible to change the signature reservation with an option
+
+ * Return errors rather than mangle documents in some cases,
+   notably with pre-existing PDF forms
+
+ * Avoid downgrading the document's PDF version to 1.6
+
+ * A few fixes for PDF parsing and serialisation
+
+ * Add an instructive man page
+
+ * Add a native Go port of the utility, also usable as a library
+
+
 1.0 (2018-08-03)
 
  * Initial release

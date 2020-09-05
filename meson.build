@@ -1,5 +1,5 @@
 project('pdf-simple-sign', 'cpp', default_options : ['cpp_std=c++11'],
-	version : '1.0')
+	version : '1.1')
 
 conf = configuration_data()
 conf.set('PROJECT_NAME', '"' + meson.project_name() + '"')
