@@ -1,23 +1,20 @@
 pdf-simple-sign
 ===============
-:compact-option:
 
 'pdf-simple-sign' is a simple PDF signer intended for documents produced by
-the Cairo library.  As such, it currently comes with some restrictions:
-
- * the document may not have any forms or signatures already, as they would be
-   overwritten
- * the document may not employ cross-reference streams, or must constitute
-   a hybrid-reference file at least
-
-The signature is attached to the first page and has no appearance.
+the Cairo library, GNU troff, ImageMagick, or similar.
 
 I don't aim to extend the functionality any further.  The project is fairly
 self-contained and it should be easy to grasp and change to suit to your needs.
 
+Documentation
+-------------
+See the link:pdf-simple-sign.adoc[man page] for information about usage.
+The rest of this README will concern itself with externalities.
+
 Building
 --------
-Build dependencies: Meson, a C++11 compiler, pkg-config +
+Build dependencies: Meson, Asciidoctor, a C++11 compiler, pkg-config +
 Runtime dependencies: libcrypto (OpenSSL 1.1 API)
 
  $ git clone https://git.janouch.name/p/pdf-simple-sign.git
@@ -29,15 +26,6 @@ Runtime dependencies: libcrypto (OpenSSL 1.1 API)
 In addition to the C++ version, also included is a native Go port:
 
  $ go get janouch.name/pdf-simple-sign/cmd/pdf-simple-sign
-
-Usage
------
-
- $ ./pdf-simple-sign document.pdf document.signed.pdf KeyAndCerts.p12 password
-
-If the signature doesn't fit within the default reservation of 4 kibibytes,
-you might need to adjust it using the `-r` option, or throw out any unnecessary
-intermediate certificates.
 
 Contributing and Support
 ------------------------

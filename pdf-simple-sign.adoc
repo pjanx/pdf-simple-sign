@@ -1,0 +1,79 @@
+pdf-simple-sign(1)
+==================
+:doctype: manpage
+:manmanual: pdf-simple-sign Manual
+:mansource: pdf-simple-sign {release-version}
+
+Name
+----
+pdf-simple-sign - a simple PDF signer
+
+Synopsis
+--------
+*pdf-simple-sign* [_OPTION_]... _INPUT.pdf_ _OUTPUT.pdf_ _KEY-PAIR.p12_ _PASSWORD_
+
+Description
+-----------
+'pdf-simple-sign' is a simple PDF signer intended for documents produced by
+the Cairo library, GNU troff, ImageMagick, or similar.  As such, it currently
+comes with some restrictions:
+
+ * the document may not have any forms or signatures already, as they would be
+   overwritten,
+ * the document may not employ cross-reference streams, or must constitute
+   a hybrid-reference file at least.
+
+The key and certificate pair is accepted in the PKCS#12 format.  The _PASSWORD_
+must be supplied on the command line, and may be empty if it is not needed.
+
+The signature is attached to the first page and has no appearance.
+
+If signature data don't fit within the default reservation of 4 kibibytes,
+you might need to adjust it using the *-r* option, or throw out any unnecessary
+intermediate certificates.
+
+Options
+-------
+*-r* _RESERVATION_, *--reservation*=_RESERVATION_::
+  Set aside _RESERVATION_ amount of bytes for the resulting signature.
+  Feel free to try a few values in a loop.  The program itself has no
+  conceptions about the data, so it can't make accurate predictions.
+
+*-h*, *--help*::
+  Display a help message and exit.
+
+*-V*, *--version*::
+  Output version information and exit.
+
+Examples
+--------
+Create a self-signed certificate, make a document containing the current date,
+sign it and verify the attached signature:
+
+ $ openssl req -newkey rsa:2048 -subj "/CN=Test" -nodes
+   -keyout key.pem -x509 -out cert.pem 2>/dev/null
+ $ openssl pkcs12 -inkey key.pem -in cert.pem \
+   -export -passout pass:test -out key-cert.p12
+ $ date | groff -T pdf > test.pdf
+ $ pdf-simple-sign test.pdf test.signed.pdf key-pair.p12 ""
+ $ pdfsig test.signed.pdf
+ Digital Signature Info of: test.signed.pdf
+ Signature #1:
+   - Signer Certificate Common Name: Test
+   - Signer full Distinguished Name: CN=Test
+   - Signing Time: Sep 05 2020 19:41:22
+   - Signing Hash Algorithm: SHA-256
+   - Signature Type: adbe.pkcs7.detached
+   - Signed Ranges: [0 - 6522], [14716 - 15243]
+   - Total document signed
+   - Signature Validation: Signature is Valid.
+   - Certificate Validation: Certificate issuer isn't Trusted.
+
+Reporting bugs
+--------------
+Use https://git.janouch.name/p/pdf-simple-sign to report bugs, request features,
+or submit pull requests.
+
+See also
+--------
+*openssl*(1), *pdfsig*(1)
