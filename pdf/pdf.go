@@ -853,36 +853,32 @@ func (u *Updater) FlushUpdates() {
 		return updated[i] < updated[j]
 	})
 
-	groups := make(map[uint]uint)
-	for i := 0; i < len(updated); {
-		start, count := updated[i], uint(1)
-		for i++; i != len(updated) && updated[i] == start+count; i++ {
-			count++
-		}
-		groups[start] = count
-	}
-
-	// Taking literally "Each cross-reference section begins with a line
-	// containing the keyword xref. Following this line are one or more
-	// cross-reference subsections." from 3.4.3 in PDF Reference.
-	if len(groups) == 0 {
-		groups[0] = 0
-	}
-
 	buf := bytes.NewBuffer(u.Document)
 	startXref := buf.Len() + 1
 	buf.WriteString("\nxref\n")
 
-	for start, count := range groups {
-		fmt.Fprintf(buf, "%d %d\n", start, count)
-		for i := uint(0); i < count; i++ {
-			ref := u.xref[start+uint(i)]
+	for i := 0; i < len(updated); {
+		start, stop := updated[i], updated[i]+1
+		for i++; i < len(updated) && updated[i] == stop; i++ {
+			stop++
+		}
+
+		fmt.Fprintf(buf, "%d %d\n", start, stop-start)
+		for ; start < stop; start++ {
+			ref := u.xref[start]
 			if ref.nonfree {
 				fmt.Fprintf(buf, "%010d %05d n \n", ref.offset, ref.generation)
 			} else {
 				fmt.Fprintf(buf, "%010d %05d f \n", ref.offset, ref.generation)
 			}
 		}
+	}
+
+	// Taking literally "Each cross-reference section begins with a line
+	// containing the keyword xref. Following this line are one or more
+	// cross-reference subsections." from 3.4.3 in PDF Reference.
+	if len(updated) == 0 {
+		fmt.Fprintf(buf, "%d %d\n", 0, 0)
 	}
 
 	u.Trailer["Size"] = NewNumeric(float64(u.xrefSize))
