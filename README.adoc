@@ -12,6 +12,8 @@ Documentation
 See the link:pdf-simple-sign.adoc[man page] for information about usage.
 The rest of this README will concern itself with externalities.
 
+image:https://pkg.go.dev/badge/janouch.name/pdf-simple-sign@master/pdf["PkgGoDev", link="https://pkg.go.dev/janouch.name/pdf-simple-sign@master/pdf"]
+
 Building
 --------
 Build dependencies: Meson, Asciidoctor, a C++11 compiler, pkg-config +
