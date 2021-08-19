@@ -1,6 +1,6 @@
 module janouch.name/pdf-simple-sign
 
-go 1.14
+go 1.17
 
 require (
 	go.mozilla.org/pkcs7 v0.0.0-20200128120323-432b2356ecb1
