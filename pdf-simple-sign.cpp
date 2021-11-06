@@ -16,26 +16,26 @@
 // CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 //
 
-#include <cstdio>
 #include <cmath>
+#include <cstdio>
 #undef NDEBUG
 #include <cassert>
 
-#include <vector>
 #include <map>
-#include <regex>
 #include <memory>
+#include <regex>
 #include <set>
+#include <vector>
 
 #if defined __GLIBCXX__ && __GLIBCXX__ < 20140422
 #error Need libstdc++ >= 4.9 for <regex>
 #endif
 
-#include <unistd.h>
 #include <getopt.h>
 #include <openssl/err.h>
-#include <openssl/x509v3.h>
 #include <openssl/pkcs12.h>
+#include <openssl/x509v3.h>
+#include <unistd.h>
 
 #include "config.h"
 
@@ -55,7 +55,7 @@ static std::string concatenate(const std::vector<std::string>& v, const std::str
 
 template<typename... Args>
 std::string ssprintf(const std::string& format, Args... args) {
-  size_t size = std::snprintf(nullptr, 0, format.c_str(), args... ) + 1;
+  size_t size = std::snprintf(nullptr, 0, format.c_str(), args...) + 1;
   std::unique_ptr<char[]> buf(new char[size]);
   std::snprintf(buf.get(), size, format.c_str(), args...);
   return std::string(buf.get(), buf.get() + size - 1);
@@ -262,14 +262,12 @@ static std::string pdf_serialize(const pdf_object& o) {
   case pdf_object::NL:      return "\n";
   case pdf_object::NIL:     return "null";
   case pdf_object::BOOL:    return o.number ? "true" : "false";
-  case pdf_object::NUMERIC:
-  {
+  case pdf_object::NUMERIC: {
     if (o.is_integer()) return std::to_string((long long) o.number);
     return std::to_string(o.number);
   }
   case pdf_object::KEYWORD: return o.string;
-  case pdf_object::NAME:
-  {
+  case pdf_object::NAME: {
     std::string escaped = "/";
     for (char c : o.string) {
       if (c == '#' || strchr(pdf_lexer::delimiters, c) || strchr(pdf_lexer::whitespace, c))
@@ -279,8 +277,7 @@ static std::string pdf_serialize(const pdf_object& o) {
     }
     return escaped;
   }
-  case pdf_object::STRING:
-  {
+  case pdf_object::STRING: {
     std::string escaped;
     for (char c : o.string) {
       if (c == '\\' || c == '(' || c == ')')
@@ -293,15 +290,13 @@ static std::string pdf_serialize(const pdf_object& o) {
   case pdf_object::E_ARRAY: return "]";
   case pdf_object::B_DICT:  return "<<";
   case pdf_object::E_DICT:  return ">>";
-  case pdf_object::ARRAY:
-  {
+  case pdf_object::ARRAY: {
     std::vector<std::string> v;
     for (const auto& i : o.array)
       v.push_back(pdf_serialize(i));
     return "[ " + concatenate(v, " ") + " ]";
   }
-  case pdf_object::DICT:
-  {
+  case pdf_object::DICT: {
     std::string s;
     for (const auto i : o.dict)
       // FIXME the key is also supposed to be escaped by pdf_serialize()
@@ -372,8 +367,8 @@ pdf_object pdf_updater::parse_obj(pdf_lexer& lex, std::vector<pdf_object>& stack
 
   auto g = stack.back(); stack.pop_back();
   auto n = stack.back(); stack.pop_back();
-  if (!g.is_integer() || g.number < 0 || g.number > UINT_MAX
-   || !n.is_integer() || n.number < 0 || n.number > UINT_MAX)
+  if (!g.is_integer() || g.number < 0 || g.number > UINT_MAX ||
+      !n.is_integer() || n.number < 0 || n.number > UINT_MAX)
     return {pdf_object::END, "invalid object ID pair"};
 
   pdf_object obj{pdf_object::OBJECT};
@@ -397,8 +392,8 @@ pdf_object pdf_updater::parse_R(std::vector<pdf_object>& stack) const {
 
   auto g = stack.back(); stack.pop_back();
   auto n = stack.back(); stack.pop_back();
-  if (!g.is_integer() || g.number < 0 || g.number > UINT_MAX
-   || !n.is_integer() || n.number < 0 || n.number > UINT_MAX)
+  if (!g.is_integer() || g.number < 0 || g.number > UINT_MAX ||
+      !n.is_integer() || n.number < 0 || n.number > UINT_MAX)
     return {pdf_object::END, "invalid reference ID pair"};
 
   pdf_object ref{pdf_object::REFERENCE};
@@ -415,8 +410,7 @@ pdf_object pdf_updater::parse(pdf_lexer& lex, std::vector<pdf_object>& stack) co
   case pdf_object::COMMENT:
     // These are not important to parsing, not even for this procedure's needs
     return parse(lex, stack);
-  case pdf_object::B_ARRAY:
-  {
+  case pdf_object::B_ARRAY: {
     std::vector<pdf_object> array;
     while (1) {
       auto object = parse(lex, array);
@@ -428,8 +422,7 @@ pdf_object pdf_updater::parse(pdf_lexer& lex, std::vector<pdf_object>& stack) co
     }
     return array;
   }
-  case pdf_object::B_DICT:
-  {
+  case pdf_object::B_DICT: {
     std::vector<pdf_object> array;
     while (1) {
       auto object = parse(lex, array);
@@ -477,8 +470,8 @@ std::string pdf_updater::load_xref(pdf_lexer& lex, std::set<uint>& loaded_entrie
       break;
 
     auto second = parse(lex, throwaway_stack);
-    if (!object.is_integer() || object.number < 0 || object.number > UINT_MAX
-     || !second.is_integer() || second.number < 0 || second.number > UINT_MAX)
+    if (!object.is_integer() || object.number < 0 || object.number > UINT_MAX ||
+        !second.is_integer() || second.number < 0 || second.number > UINT_MAX)
       return "invalid xref section header";
 
     const size_t start = object.number;
@@ -487,9 +480,9 @@ std::string pdf_updater::load_xref(pdf_lexer& lex, std::set<uint>& loaded_entrie
       auto off = parse(lex, throwaway_stack);
       auto gen = parse(lex, throwaway_stack);
       auto key = parse(lex, throwaway_stack);
-      if (!off.is_integer() || off.number < 0 || off.number > document.length()
-       || !gen.is_integer() || gen.number < 0 || gen.number > 65535
-       || key.type != pdf_object::KEYWORD)
+      if (!off.is_integer() || off.number < 0 || off.number > document.length() ||
+          !gen.is_integer() || gen.number < 0 || gen.number > 65535 ||
+          key.type != pdf_object::KEYWORD)
         return "invalid xref entry";
 
       bool free = true;
@@ -657,8 +650,8 @@ void pdf_updater::flush_updates() {
   }
 
   trailer["Size"] = {pdf_object::NUMERIC, double(xref_size)};
-  document += "trailer\n" + pdf_serialize(trailer)
-    + ssprintf("\nstartxref\n%zu\n%%%%EOF\n", startxref);
+  document +=
+    "trailer\n" + pdf_serialize(trailer) + ssprintf("\nstartxref\n%zu\n%%%%EOF\n", startxref);
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -700,9 +693,9 @@ static pdf_object pdf_get_first_page(pdf_updater& pdf, uint node_n, uint node_ge
   // XXX technically speaking, this may be an indirect reference.  The correct way to solve this
   //   seems to be having "pdf_updater" include a wrapper around "obj.dict.find"
   auto kids = obj.dict.find("Kids");
-  if (kids == obj.dict.end() || kids->second.type != pdf_object::ARRAY
-   || kids->second.array.empty()
-   || kids->second.array.at(0).type != pdf_object::REFERENCE)
+  if (kids == obj.dict.end() || kids->second.type != pdf_object::ARRAY ||
+      kids->second.array.empty() ||
+      kids->second.array.at(0).type != pdf_object::REFERENCE)
     return {pdf_object::NIL};
 
   // XXX nothing prevents us from recursing in an evil circular graph
@@ -740,8 +733,8 @@ static std::string pdf_fill_in_signature(std::string& document, size_t sign_off,
   // OpenSSL error reasons will usually be of more value than any distinction I can come up with
   std::string err = "OpenSSL failure";
 
-  if (!(p12 = d2i_PKCS12_fp(pkcs12_fp, nullptr))
-   || !PKCS12_parse(p12, pkcs12_pass.c_str(), &private_key, &certificate, &chain)) {
+  if (!(p12 = d2i_PKCS12_fp(pkcs12_fp, nullptr)) ||
+      !PKCS12_parse(p12, pkcs12_pass.c_str(), &private_key, &certificate, &chain)) {
     err = pkcs12_path + ": parse failure";
     goto error;
   }
@@ -766,8 +759,8 @@ static std::string pdf_fill_in_signature(std::string& document, size_t sign_off,
 #endif
 
   // The default digest is SHA1, which is mildly insecure now -- hence using PKCS7_sign_add_signer
-  if (!(p7 = PKCS7_sign(nullptr, nullptr, nullptr, nullptr, sign_flags))
-   || !PKCS7_sign_add_signer(p7, certificate, private_key, EVP_sha256(), sign_flags))
+  if (!(p7 = PKCS7_sign(nullptr, nullptr, nullptr, nullptr, sign_flags)) ||
+      !PKCS7_sign_add_signer(p7, certificate, private_key, EVP_sha256(), sign_flags))
     goto error;
   // For RFC 3161, this is roughly how a timestamp token would be attached (see Appendix A):
   //   PKCS7_add_attribute(signer_info, NID_id_smime_aa_timeStampToken, V_ASN1_SEQUENCE, value)
@@ -777,10 +770,10 @@ static std::string pdf_fill_in_signature(std::string& document, size_t sign_off,
 
   // Adaptation of the innards of the undocumented PKCS7_final() -- I didn't feel like making
   // a copy of the whole document.  Hopefully this writes directly into a digest BIO.
-  if (!(p7bio = PKCS7_dataInit(p7, nullptr))
-   || (ssize_t) sign_off != BIO_write(p7bio, document.data(), sign_off)
-   || (ssize_t) tail_len != BIO_write(p7bio, document.data() + tail_off, tail_len)
-   || BIO_flush(p7bio) != 1 || !PKCS7_dataFinal(p7, p7bio))
+  if (!(p7bio = PKCS7_dataInit(p7, nullptr)) ||
+      (ssize_t) sign_off != BIO_write(p7bio, document.data(), sign_off) ||
+      (ssize_t) tail_len != BIO_write(p7bio, document.data() + tail_off, tail_len) ||
+      BIO_flush(p7bio) != 1 || !PKCS7_dataFinal(p7, p7bio))
     goto error;
 
 #if 0
@@ -850,7 +843,7 @@ static std::string pdf_sign(std::string& document, ushort reservation) {
   // 8.7 Digital Signatures - /signature dictionary/
   auto sigdict_n = pdf.allocate();
   size_t byterange_off = 0, byterange_len = 0, sign_off = 0, sign_len = 0;
-  pdf.update(sigdict_n, [&]{
+  pdf.update(sigdict_n, [&] {
     // The timestamp is important for Adobe Acrobat Reader DC.  The ideal would be to use RFC 3161.
     pdf.document.append("<< /Type/Sig /Filter/Adobe.PPKLite /SubFilter/adbe.pkcs7.detached\n"
                         "   /M" + pdf_serialize(pdf_date(time(nullptr))) + " /ByteRange ");
@@ -883,7 +876,7 @@ static std::string pdf_sign(std::string& document, ushort reservation) {
   }}});
 
   auto sigfield_n = pdf.allocate();
-  pdf.update(sigfield_n, [&]{ pdf.document += pdf_serialize(sigfield); });
+  pdf.update(sigfield_n, [&] { pdf.document += pdf_serialize(sigfield); });
 
   auto pages_ref = root.dict.find("Pages");
   if (pages_ref == root.dict.end() || pages_ref->second.type != pdf_object::REFERENCE)
@@ -901,7 +894,7 @@ static std::string pdf_sign(std::string& document, ushort reservation) {
     annots = {pdf_object::ARRAY};
   }
   annots.array.emplace_back(pdf_object::REFERENCE, sigfield_n, 0);
-  pdf.update(page.n, [&]{ pdf.document += pdf_serialize(page); });
+  pdf.update(page.n, [&] { pdf.document += pdf_serialize(page); });
 
   // 8.6.1 Interactive Form Dictionary
   if (root.dict.count("AcroForm"))
@@ -918,7 +911,7 @@ static std::string pdf_sign(std::string& document, ushort reservation) {
   if (pdf.version(root) < 16)
     root.dict["Version"] = {pdf_object::NAME, "1.6"};
 
-  pdf.update(root_ref->second.n, [&]{ pdf.document += pdf_serialize(root); });
+  pdf.update(root_ref->second.n, [&] { pdf.document += pdf_serialize(root); });
   pdf.flush_updates();
 
   // Now that we know the length of everything, store byte ranges of what we're about to sign,
@@ -947,9 +940,9 @@ static void die(int status, const char* format, ...) {
 
 int main(int argc, char* argv[]) {
   auto invocation_name = argv[0];
-  auto usage = [=]{
+  auto usage = [=] {
     die(1, "Usage: %s [-h] [-r RESERVATION] INPUT-FILENAME OUTPUT-FILENAME PKCS12-PATH PKCS12-PASS",
-            invocation_name);
+        invocation_name);
   };
 
   static struct option opts[] = {
@@ -963,8 +956,7 @@ int main(int argc, char* argv[]) {
   long reservation = 4096;
   while (1) {
     int option_index = 0;
-    auto c = getopt_long(argc, const_cast<char* const*>(argv),
-                         "hVr:", opts, &option_index);
+    auto c = getopt_long(argc, const_cast<char* const*>(argv), "hVr:", opts, &option_index);
     if (c == -1)
       break;
 
