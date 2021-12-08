@@ -63,9 +63,9 @@ const (
 	Reference
 )
 
-// Object is a PDF token/object thingy.  Objects may be composed either from
+// Object is a PDF token/object thingy. Objects may be composed either from
 // one or a sequence of tokens. The PDF Reference doesn't actually speak
-// of tokens.
+// of tokens, though ISO 32000-1:2008 does.
 type Object struct {
 	Kind ObjectKind
 
@@ -722,7 +722,7 @@ func NewUpdater(document []byte) (*Updater, error) {
 		if !ok {
 			break
 		}
-		// FIXME: We don't check for size_t over or underflow.
+		// FIXME: Do not read offsets and sizes as floating point numbers.
 		if !prevOffset.IsInteger() {
 			return nil, errors.New("invalid Prev offset")
 		}

@@ -64,7 +64,7 @@ std::string ssprintf(const std::string& format, Args... args) {
 // -------------------------------------------------------------------------------------------------
 
 /// PDF token/object thingy.  Objects may be composed either from one or a sequence of tokens.
-/// The PDF Reference doesn't actually speak of tokens.
+/// The PDF Reference doesn't actually speak of tokens, though ISO 32000-1:2008 does.
 struct pdf_object {
   enum type {
     END, NL, COMMENT, NIL, BOOL, NUMERIC, KEYWORD, NAME, STRING,
@@ -543,8 +543,8 @@ std::string pdf_updater::initialize() {
     const auto prev_offset = trailer.dict.find("Prev");
     if (prev_offset == trailer.dict.end())
       break;
-    // FIXME we don't check for size_t over or underflow
-    if (!prev_offset->second.is_integer())
+    // FIXME do not read offsets and sizes as floating point numbers
+    if (!prev_offset->second.is_integer() || prev_offset->second.number < 0)
       return "invalid Prev offset";
     xref_offset = prev_offset->second.number;
   }
