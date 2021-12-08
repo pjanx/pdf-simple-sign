@@ -794,6 +794,14 @@ func (u *Updater) Get(n, generation uint) (Object, error) {
 	}
 }
 
+// Derefence dereferences Reference objects, and passes the other kinds through.
+func (u *Updater) Dereference(o Object) (Object, error) {
+	if o.Kind != Reference {
+		return o, nil
+	}
+	return u.Get(o.N, o.Generation)
+}
+
 // Allocate allocates a new object number.
 func (u *Updater) Allocate() uint {
 	n := u.xrefSize
@@ -904,15 +912,15 @@ func NewDate(ts time.Time) Object {
 
 // GetFirstPage retrieves the first page of the given page (sub)tree reference,
 // or returns a Nil object if unsuccessful.
-func (u *Updater) GetFirstPage(nodeN, nodeGeneration uint) Object {
-	obj, err := u.Get(nodeN, nodeGeneration)
+func (u *Updater) GetFirstPage(node Object) Object {
+	obj, err := u.Dereference(node)
 	if err != nil || obj.Kind != Dict {
 		return New(Nil)
 	}
 
 	// Out of convenience; these aren't filled normally.
-	obj.N = nodeN
-	obj.Generation = nodeGeneration
+	obj.N = node.N
+	obj.Generation = node.Generation
 
 	if typ, ok := obj.Dict["Type"]; !ok || typ.Kind != Name {
 		return New(Nil)
@@ -932,7 +940,7 @@ func (u *Updater) GetFirstPage(nodeN, nodeGeneration uint) Object {
 	}
 
 	// XXX: Nothing prevents us from recursing in an evil circular graph.
-	return u.GetFirstPage(kids.Array[0].N, kids.Array[0].Generation)
+	return u.GetFirstPage(kids.Array[0])
 }
 
 // -----------------------------------------------------------------------------
@@ -1126,7 +1134,7 @@ func Sign(document []byte, key crypto.PrivateKey, certs []*x509.Certificate,
 	if !ok || rootRef.Kind != Reference {
 		return nil, errors.New("trailer does not contain a reference to Root")
 	}
-	root, err := pdf.Get(rootRef.N, rootRef.Generation)
+	root, err := pdf.Dereference(rootRef)
 	if err != nil {
 		return nil, fmt.Errorf("Root dictionary retrieval failed: %s", err)
 	}
@@ -1183,7 +1191,7 @@ func Sign(document []byte, key crypto.PrivateKey, certs []*x509.Certificate,
 	if !ok || pagesRef.Kind != Reference {
 		return nil, errors.New("invalid Pages reference")
 	}
-	page := pdf.GetFirstPage(pagesRef.N, pagesRef.Generation)
+	page := pdf.GetFirstPage(pagesRef)
 	if page.Kind != Dict {
 		return nil, errors.New("invalid or unsupported page tree")
 	}
