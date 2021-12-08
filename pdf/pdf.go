@@ -766,8 +766,6 @@ func (u *Updater) Version(root *Object) int {
 
 // Get retrieves an object by its number and generation--may return
 // Nil or End with an error.
-//
-// TODO(p): We should fix all uses of this not to eat the error.
 func (u *Updater) Get(n, generation uint) (Object, error) {
 	if n >= u.xrefSize {
 		return New(Nil), nil
@@ -907,8 +905,8 @@ func NewDate(ts time.Time) Object {
 // GetFirstPage retrieves the first page of the given page (sub)tree reference,
 // or returns a Nil object if unsuccessful.
 func (u *Updater) GetFirstPage(nodeN, nodeGeneration uint) Object {
-	obj, _ := u.Get(nodeN, nodeGeneration)
-	if obj.Kind != Dict {
+	obj, err := u.Get(nodeN, nodeGeneration)
+	if err != nil || obj.Kind != Dict {
 		return New(Nil)
 	}
 
@@ -1128,7 +1126,10 @@ func Sign(document []byte, key crypto.PrivateKey, certs []*x509.Certificate,
 	if !ok || rootRef.Kind != Reference {
 		return nil, errors.New("trailer does not contain a reference to Root")
 	}
-	root, _ := pdf.Get(rootRef.N, rootRef.Generation)
+	root, err := pdf.Get(rootRef.N, rootRef.Generation)
+	if err != nil {
+		return nil, fmt.Errorf("Root dictionary retrieval failed: %s", err)
+	}
 	if root.Kind != Dict {
 		return nil, errors.New("invalid Root dictionary reference")
 	}
