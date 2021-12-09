@@ -21,6 +21,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
 	"janouch.name/pdf-simple-sign/pdf"
 )
@@ -52,7 +53,8 @@ func streamSuffix(o *pdf.Object) string {
 	return "stream"
 }
 
-func list(updater *pdf.Updater) {
+func list(mtime time.Time, updater *pdf.Updater) {
+	stamp := mtime.Local().Format("01-02-2006 15:04:05")
 	for _, o := range updater.ListIndirect() {
 		object, err := updater.Get(o.N, o.Generation)
 		size := 0
@@ -62,11 +64,11 @@ func list(updater *pdf.Updater) {
 			// Accidental transformation, retrieving original data is more work.
 			size = len(object.Serialize())
 		}
-		fmt.Printf("-r--r--r-- 1 0 0 %d 01-01-1970 00:00 %d-%d\n",
-			size, o.N, o.Generation)
+		fmt.Printf("-r--r--r-- 1 0 0 %d %s n%dg%d\n",
+			size, stamp, o.N, o.Generation)
 		if object.Kind == pdf.Stream {
-			fmt.Printf("-r--r--r-- 1 0 0 %d 01-01-1970 00:00 %d-%d.%s\n",
-				len(object.Stream), o.N, o.Generation, streamSuffix(&object))
+			fmt.Printf("-r--r--r-- 1 0 0 %d %s n%dg%d.%s\n", len(object.Stream),
+				stamp, o.N, o.Generation, streamSuffix(&object))
 		}
 	}
 }
@@ -76,7 +78,7 @@ func copyout(updater *pdf.Updater, storedFilename, extractTo string) {
 		n, generation uint
 		suffix        string
 	)
-	m, err := fmt.Sscanf(storedFilename, "%d-%d%s", &n, &generation, &suffix)
+	m, err := fmt.Sscanf(storedFilename, "n%dg%d%s", &n, &generation, &suffix)
 	if m < 2 {
 		die(3, "%s: %s", storedFilename, err)
 	}
@@ -108,6 +110,11 @@ func main() {
 		die(1, "%s", err)
 	}
 
+	mtime := time.UnixMilli(0)
+	if info, err := os.Stat(documentPath); err == nil {
+		mtime = info.ModTime()
+	}
+
 	updater, err := pdf.NewUpdater(doc)
 	if err != nil {
 		die(2, "%s", err)
@@ -120,7 +127,7 @@ func main() {
 		if flag.NArg() != 2 {
 			usage()
 		} else {
-			list(updater)
+			list(mtime, updater)
 		}
 	case "copyout":
 		if flag.NArg() != 4 {
