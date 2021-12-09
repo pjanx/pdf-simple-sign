@@ -29,6 +29,11 @@ In addition to the C++ version, also included is a native Go port:
 
  $ go get janouch.name/pdf-simple-sign/cmd/pdf-simple-sign
 
+And a crude external VFS for Midnight Commander, that may be used to extract
+all streams from a given PDF file:
+
+ $ go get janouch.name/pdf-simple-sign/cmd/extfs-pdf
+
 Contributing and Support
 ------------------------
 Use https://git.janouch.name/p/pdf-simple-sign to report bugs, request features,
