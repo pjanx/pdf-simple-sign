@@ -59,6 +59,7 @@ const (
 	// higher-level objects
 	Array
 	Dict
+	Stream
 	Indirect
 	Reference
 )
@@ -72,7 +73,8 @@ type Object struct {
 	String        string            // Comment/Keyword/Name/String
 	Number        float64           // Bool, Numeric
 	Array         []Object          // Array, Indirect
-	Dict          map[string]Object // Dict, in the future also Stream
+	Dict          map[string]Object // Dict, Stream
+	Stream        []byte            // Stream
 	N, Generation uint              // Indirect, Reference
 }
 
@@ -458,6 +460,10 @@ func (o *Object) Serialize() string {
 			fmt.Fprint(b, " /", k, " ", v.Serialize())
 		}
 		return "<<" + b.String() + " >>"
+	case Stream:
+		d := NewDict(o.Dict)
+		d.Dict["Length"] = NewNumeric(float64(len(o.Stream)))
+		return d.Serialize() + "\nstream\n" + string(o.Stream) + "\nendstream"
 	case Indirect:
 		return fmt.Sprintf("%d %d obj\n%s\nendobj", o.N, o.Generation,
 			o.Array[0].Serialize())
@@ -495,6 +501,54 @@ type Updater struct {
 
 	// the new trailer dictionary to be written, initialized with the old one
 	Trailer map[string]Object
+}
+
+func (u *Updater) parseStream(lex *Lexer, stack *[]Object) (Object, error) {
+	lenStack := len(*stack)
+	if lenStack < 1 {
+		return newError("missing stream dictionary")
+	}
+	dict := (*stack)[lenStack-1]
+	if dict.Kind != Dict {
+		return newError("stream not preceded by a dictionary")
+	}
+
+	*stack = (*stack)[:lenStack-1]
+	length, ok := dict.Dict["Length"]
+	if !ok {
+		return newError("missing stream Length")
+	}
+	length, err := u.Dereference(length)
+	if err != nil {
+		return length, err
+	}
+	if !length.IsUint() || length.Number > math.MaxInt {
+		return newError("stream Length not an unsigned integer")
+	}
+
+	// Expect exactly one newline.
+	if nl, err := lex.Next(); err != nil {
+		return nl, err
+	} else if nl.Kind != NL {
+		return newError("stream does not start with a newline")
+	}
+
+	size := int(length.Number)
+	if len(lex.P) < size {
+		return newError("stream is longer than the document")
+	}
+
+	dict.Kind = Stream
+	dict.Stream = lex.P[:size]
+	lex.P = lex.P[size:]
+
+	// Skip any number of trailing newlines or comments.
+	if end, err := u.parse(lex, stack); err != nil {
+		return end, err
+	} else if end.Kind != Keyword || end.String != "endstream" {
+		return newError("improperly terminated stream")
+	}
+	return dict, nil
 }
 
 func (u *Updater) parseIndirect(lex *Lexer, stack *[]Object) (Object, error) {
@@ -590,15 +644,11 @@ func (u *Updater) parse(lex *Lexer, stack *[]Object) (Object, error) {
 		}
 		return NewDict(dict), nil
 	case Keyword:
-		// Appears in the document body, typically needs
-		// to access the cross-reference table.
-		//
-		// TODO(p): Use the xref to read /Length etc. once we
-		// actually need to read such objects; presumably
-		// streams can use the Object.String member.
 		switch token.String {
 		case "stream":
-			return newError("streams are not supported yet")
+			// Appears in the document body,
+			// typically needs to access the cross-reference table.
+			return u.parseStream(lex, stack)
 		case "obj":
 			return u.parseIndirect(lex, stack)
 		case "R":
