@@ -503,6 +503,17 @@ type Updater struct {
 	Trailer map[string]Object
 }
 
+// ListIndirect returns the whole cross-reference table as Reference Objects.
+func (u *Updater) ListIndirect() []Object {
+	result := []Object{}
+	for i := 0; i < len(u.xref); i++ {
+		if u.xref[i].nonfree {
+			result = append(result, NewReference(uint(i), u.xref[i].generation))
+		}
+	}
+	return result
+}
+
 func (u *Updater) parseStream(lex *Lexer, stack *[]Object) (Object, error) {
 	lenStack := len(*stack)
 	if lenStack < 1 {
