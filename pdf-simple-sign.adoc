@@ -14,7 +14,7 @@ Synopsis
 
 Description
 -----------
-'pdf-simple-sign' is a simple PDF signer intended for documents produced by
+*pdf-simple-sign* is a simple PDF signer intended for documents produced by
 the Cairo library, GNU troff, ImageMagick, or similar.  As such, it currently
 comes with some restrictions:
 
