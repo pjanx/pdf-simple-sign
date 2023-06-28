@@ -2,7 +2,8 @@ pdf-simple-sign
 ===============
 
 'pdf-simple-sign' is a simple PDF signer intended for documents produced by
-the Cairo library, GNU troff, ImageMagick, or similar.
+the Cairo library (≤ 1.17.4 or using PDF 1.4), GNU troff, ImageMagick,
+or similar.
 
 I don't aim to extend the functionality any further.  The project is fairly
 self-contained and it should be easy to grasp and change to suit to your needs.

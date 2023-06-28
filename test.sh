@@ -11,7 +11,8 @@ mkdir tmp
 
 # Create documents in various tools
 log "Creating source documents"
-inkscape --pipe --export-filename=tmp/cairo.pdf <<'EOF' 2>/dev/null || :
+inkscape --pipe --export-filename=tmp/cairo.pdf --export-pdf-version=1.4 \
+<<'EOF' 2>/dev/null || :
 <svg xmlns="http://www.w3.org/2000/svg"><text x="5" y="10">Hello</text></svg>
 EOF
 
@@ -45,7 +46,11 @@ openssl x509 -req -in tmp/cert.csr -out tmp/cert.pem \
 	-CA tmp/ca.cert.pem -CAkey tmp/ca.key.pem -set_serial 1 \
 	-extensions smime -extfile tmp/cert.cfg 2>/dev/null
 openssl verify -CAfile tmp/ca.cert.pem tmp/cert.pem >/dev/null
+
+# The second line accomodates the Go signer,
+# which doesn't support SHA-256 within pkcs12 handling
 openssl pkcs12 -inkey tmp/key.pem -in tmp/cert.pem \
+	-certpbe PBE-SHA1-3DES -keypbe PBE-SHA1-3DES -macalg sha1 \
 	-export -passout pass: -out tmp/key-pair.p12
 
 for tool in "$@"; do
@@ -55,6 +60,11 @@ for tool in "$@"; do
 		result=${source%.pdf}.signed.pdf
 		$tool "$source" "$result" tmp/key-pair.p12 ""
 		pdfsig -nssdir sql:tmp/nssdir "$result" | grep Validation
+
+		# Only some of our generators use PDF versions higher than 1.5
+		log "Testing $tool for version detection"
+		grep -q "/Version /1.6" "$result" || grep -q "^%PDF-1.6" "$result" \
+			|| die "Version detection seems to misbehave (no upgrade)"
 	done
 
 	log "Testing $tool for expected failures"
@@ -62,11 +72,6 @@ for tool in "$@"; do
 		&& die "Double signing shouldn't succeed"
 	$tool -r 1 "$source" "$source.fail.pdf" tmp/key-pair.p12 "" \
 		&& die "Too low reservations shouldn't succeed"
-
-	# Our generators do not use PDF versions higher than 1.5
-	log "Testing $tool for version detection"
-	grep -q "/Version /1.6" "$result" \
-		|| die "Version detection seems to misbehave (no upgrade)"
 
 	sed '1s/%PDF-1../%PDF-1.7/' "$source" > "$source.alt"
 	$tool "$source.alt" "$result.alt" tmp/key-pair.p12 ""
