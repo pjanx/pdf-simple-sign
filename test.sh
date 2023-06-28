@@ -16,7 +16,10 @@ inkscape --pipe --export-filename=tmp/cairo.pdf --export-pdf-version=1.4 \
 <svg xmlns="http://www.w3.org/2000/svg"><text x="5" y="10">Hello</text></svg>
 EOF
 
-date | tee tmp/lowriter.txt | groff -T pdf > tmp/groff.pdf || :
+date > tmp/lowriter.txt
+if command -v gropdf >/dev/null
+then groff -T pdf < tmp/lowriter.txt > tmp/groff.pdf
+fi
 lowriter --convert-to pdf tmp/lowriter.txt --outdir tmp >/dev/null || :
 convert rose: tmp/imagemagick.pdf || :
 
