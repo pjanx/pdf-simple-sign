@@ -33,7 +33,8 @@ Runtime dependencies: libcrypto (OpenSSL 1.1 API)
  $ cd builddir
  $ ninja
 
-In addition to the C++ version, also included is a native Go port:
+In addition to the C++ version, also included is a native Go port,
+which has enhanced PDF 1.5 support:
 
  $ go get janouch.name/pdf-simple-sign/cmd/pdf-simple-sign
 

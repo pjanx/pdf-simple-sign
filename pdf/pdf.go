@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2018 - 2021, Přemysl Eric Janouch <p@janouch.name>
+// Copyright (c) 2018 - 2024, Přemysl Eric Janouch <p@janouch.name>
 //
 // Permission to use, copy, modify, and/or distribute this software for any
 // purpose with or without fee is hereby granted.
@@ -18,6 +18,8 @@ package pdf
 
 import (
 	"bytes"
+	"compress/zlib"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -118,6 +120,13 @@ func NewDict(d map[string]Object) Object {
 		d = make(map[string]Object)
 	}
 	return Object{Kind: Dict, Dict: d}
+}
+
+func NewStream(d map[string]Object, s []byte) Object {
+	if d == nil {
+		d = make(map[string]Object)
+	}
+	return Object{Kind: Stream, Dict: d, Stream: s}
 }
 
 func NewIndirect(o Object, n, generation uint) Object {
@@ -477,8 +486,9 @@ func (o *Object) Serialize() string {
 // -----------------------------------------------------------------------------
 
 type ref struct {
-	offset     int64 // file offset or N of the next free entry
+	offset     int64 // file offset, or N of the next free entry, or index
 	generation uint  // object generation
+	compressed *uint // PDF 1.5: N of the containing compressed object
 	nonfree    bool  // whether this N is taken (for a good zero value)
 }
 
@@ -671,16 +681,159 @@ func (u *Updater) parse(lex *Lexer, stack *[]Object) (Object, error) {
 	}
 }
 
-func (u *Updater) loadXref(lex *Lexer, loadedEntries map[uint]struct{}) error {
+func (u *Updater) loadXrefEntry(
+	n uint, r ref, loadedEntries map[uint]struct{}) {
+	if _, ok := loadedEntries[n]; ok {
+		return
+	}
+	if lenXref := uint(len(u.xref)); n >= lenXref {
+		u.xref = append(u.xref, make([]ref, n-lenXref+1)...)
+	}
+	loadedEntries[n] = struct{}{}
+
+	u.xref[n] = r
+}
+
+func (u *Updater) loadXrefStream(
+	lex *Lexer, stack []Object, loadedEntries map[uint]struct{}) (
+	Object, error) {
+	var object Object
+	for {
+		var err error
+		if object, err = u.parse(lex, &stack); err != nil {
+			return New(End), fmt.Errorf("invalid xref table: %s", err)
+		} else if object.Kind == End {
+			return newError("invalid xref table")
+		}
+
+		// For the sake of simplicity, keep stacking until we find an object.
+		if object.Kind == Indirect {
+			break
+		}
+
+		stack = append(stack, object)
+	}
+
+	// ISO 32000-2:2020 7.5.8.2 Cross-reference stream dictionary
+	stream := object.Array[0]
+	if stream.Kind != Stream {
+		return newError("invalid xref table")
+	}
+	if typ, ok := stream.Dict["Type"]; !ok ||
+		typ.Kind != Name || typ.String != "XRef" {
+		return newError("invalid xref stream")
+	}
+
+	data, err := u.GetStreamData(stream)
+	if err != nil {
+		return New(End), fmt.Errorf("invalid xref stream: %s", err)
+	}
+
+	size, ok := stream.Dict["Size"]
+	if !ok || !size.IsUint() || size.Number <= 0 {
+		return newError("invalid or missing cross-reference stream Size")
+	}
+
+	type pair struct{ start, count uint }
+	pairs := []pair{}
+	if index, ok := stream.Dict["Index"]; !ok {
+		pairs = append(pairs, pair{0, uint(size.Number)})
+	} else {
+		if index.Kind != Array || len(index.Array)%2 != 0 {
+			return newError("invalid cross-reference stream Index")
+		}
+
+		a := index.Array
+		for i := 0; i < len(a); i += 2 {
+			if !a[i].IsUint() || !a[i+1].IsUint() {
+				return newError("invalid cross-reference stream Index")
+			}
+			pairs = append(pairs, pair{uint(a[i].Number), uint(a[i+1].Number)})
+		}
+	}
+
+	w, ok := stream.Dict["W"]
+	if !ok || w.Kind != Array || len(w.Array) != 3 ||
+		!w.Array[0].IsUint() || !w.Array[1].IsUint() || !w.Array[2].IsUint() {
+		return newError("invalid or missing cross-reference stream W")
+	}
+
+	w1 := uint(w.Array[0].Number)
+	w2 := uint(w.Array[1].Number)
+	w3 := uint(w.Array[2].Number)
+	if w2 == 0 {
+		return newError("invalid cross-reference stream W")
+	}
+
+	unit := w1 + w2 + w3
+	if uint(len(data))%unit != 0 {
+		return newError("invalid cross-reference stream length")
+	}
+
+	readField := func(data []byte, width uint) (uint, []byte) {
+		var n uint
+		for ; width != 0; width-- {
+			n = n<<8 | uint(data[0])
+			data = data[1:]
+		}
+		return n, data
+	}
+
+	// ISO 32000-2:2020 7.5.8.3 Cross-reference stream data
+	for _, pair := range pairs {
+		for i := uint(0); i < pair.count; i++ {
+			if uint(len(data)) < unit {
+				return newError("premature cross-reference stream EOF")
+			}
+
+			var f1, f2, f3 uint = 1, 0, 0
+			if w1 > 0 {
+				f1, data = readField(data, w1)
+			}
+			f2, data = readField(data, w2)
+			if w3 > 0 {
+				f3, data = readField(data, w3)
+			}
+
+			var r ref
+			switch f1 {
+			case 0:
+				r.offset = int64(f2)
+				r.generation = f3
+			case 1:
+				r.offset = int64(f2)
+				r.generation = f3
+				r.nonfree = true
+			case 2:
+				r.offset = int64(f3)
+				r.compressed = &f2
+				r.nonfree = true
+			default:
+				// TODO: It should be treated as a reference to the null object.
+				// We can't currently represent that.
+				return newError("unsupported cross-reference stream contents")
+			}
+
+			u.loadXrefEntry(pair.start+i, r, loadedEntries)
+		}
+	}
+
+	stream.Kind = Dict
+	stream.Stream = nil
+	return stream, nil
+}
+
+func (u *Updater) loadXref(lex *Lexer, loadedEntries map[uint]struct{}) (
+	Object, error) {
 	var throwawayStack []Object
-	if keyword, _ := u.parse(lex,
-		&throwawayStack); keyword.Kind != Keyword || keyword.String != "xref" {
-		return errors.New("invalid xref table")
+	if object, _ := u.parse(lex,
+		&throwawayStack); object.Kind != Keyword || object.String != "xref" {
+		return u.loadXrefStream(lex, []Object{object}, loadedEntries)
 	}
 	for {
 		object, _ := u.parse(lex, &throwawayStack)
 		if object.Kind == End {
-			return errors.New("unexpected EOF while looking for the trailer")
+			return newError("unexpected EOF while looking for the trailer")
 		}
 		if object.Kind == Keyword && object.String == "trailer" {
 			break
@@ -688,7 +841,7 @@ func (u *Updater) loadXref(lex *Lexer, loadedEntries map[uint]struct{}) error {
 
 		second, _ := u.parse(lex, &throwawayStack)
 		if !object.IsUint() || !second.IsUint() {
-			return errors.New("invalid xref section header")
+			return newError("invalid xref section header")
 		}
 
 		start, count := uint(object.Number), uint(second.Number)
@@ -700,33 +853,29 @@ func (u *Updater) loadXref(lex *Lexer, loadedEntries map[uint]struct{}) error {
 				off.Number > float64(len(u.Document)) ||
 				!gen.IsInteger() || gen.Number < 0 || gen.Number > 65535 ||
 				key.Kind != Keyword {
-				return errors.New("invalid xref entry")
+				return newError("invalid xref entry")
 			}
 
 			free := true
 			if key.String == "n" {
 				free = false
 			} else if key.String != "f" {
-				return errors.New("invalid xref entry")
+				return newError("invalid xref entry")
 			}
 
-			n := start + i
-			if _, ok := loadedEntries[n]; ok {
-				continue
-			}
-			if lenXref := uint(len(u.xref)); n >= lenXref {
-				u.xref = append(u.xref, make([]ref, n-lenXref+1)...)
-			}
-			loadedEntries[n] = struct{}{}
-
-			u.xref[n] = ref{
+			u.loadXrefEntry(start+i, ref{
 				offset:     int64(off.Number),
 				generation: uint(gen.Number),
 				nonfree:    !free,
-			}
+			}, loadedEntries)
 		}
 	}
-	return nil
+
+	trailer, _ := u.parse(lex, &throwawayStack)
+	if trailer.Kind != Dict {
+		return newError("invalid trailer dictionary")
+	}
+	return trailer, nil
 }
 
 // -----------------------------------------------------------------------------
@@ -756,7 +905,6 @@ func NewUpdater(document []byte) (*Updater, error) {
 	loadedXrefs := make(map[int64]struct{})
 	loadedEntries := make(map[uint]struct{})
 
-	var throwawayStack []Object
 	for {
 		if _, ok := loadedXrefs[xrefOffset]; ok {
 			return nil, errors.New("circular xref offsets")
@@ -766,19 +914,21 @@ func NewUpdater(document []byte) (*Updater, error) {
 		}
 
 		lex := Lexer{u.Document[xrefOffset:]}
-		if err := u.loadXref(&lex, loadedEntries); err != nil {
+		trailer, err := u.loadXref(&lex, loadedEntries)
+		if err != nil {
 			return nil, err
 		}
 
-		trailer, _ := u.parse(&lex, &throwawayStack)
-		if trailer.Kind != Dict {
-			return nil, errors.New("invalid trailer dictionary")
-		}
 		if len(loadedXrefs) == 0 {
 			u.Trailer = trailer.Dict
 		}
 		loadedXrefs[xrefOffset] = struct{}{}
 
+		// TODO: Descend into XRefStm here first, if present,
+		// which is also a linked list.
+
+		// We allow for mixed cross-reference tables and streams
+		// within a single Prev list, although this should never occur.
 		prevOffset, ok := trailer.Dict["Prev"]
 		if !ok {
 			break
@@ -825,6 +975,100 @@ func (u *Updater) Version(root *Object) int {
 	return 0
 }
 
+func (u *Updater) getFromObjStm(nObjStm, n uint) (Object, error) {
+	if nObjStm == n {
+		return newError("ObjStm recursion")
+	}
+
+	stream, err := u.Get(nObjStm, 0)
+	if err != nil {
+		return stream, err
+	}
+	if stream.Kind != Stream {
+		return newError("invalid ObjStm")
+	}
+	if typ, ok := stream.Dict["Type"]; !ok ||
+		typ.Kind != Name || typ.String != "ObjStm" {
+		return newError("invalid ObjStm")
+	}
+
+	data, err := u.GetStreamData(stream)
+	if err != nil {
+		return New(End), fmt.Errorf("invalid ObjStm: %s", err)
+	}
+	entryN, ok := stream.Dict["N"]
+	if !ok || !entryN.IsUint() || entryN.Number <= 0 {
+		return newError("invalid ObjStm N")
+	}
+	entryFirst, ok := stream.Dict["First"]
+	if !ok || !entryFirst.IsUint() || entryFirst.Number <= 0 {
+		return newError("invalid ObjStm First")
+	}
+
+	// NOTE: This means descending into that stream if n is not found here.
+	// It is meant to be an object reference.
+	if extends, ok := stream.Dict["Extends"]; ok && extends.Kind != Nil {
+		return newError("ObjStm extensions are unsupported")
+	}
+
+	count := uint(entryN.Number)
+	first := uint(entryFirst.Number)
+	if first > uint(len(data)) {
+		return newError("invalid ObjStm First")
+	}
+
+	lex1 := Lexer{data[:first]}
+	data = data[first:]
+
+	type pair struct{ n, offset uint }
+	pairs := []pair{}
+	for i := uint(0); i < count; i++ {
+		var throwawayStack []Object
+		objN, _ := u.parse(&lex1, &throwawayStack)
+		objOffset, _ := u.parse(&lex1, &throwawayStack)
+		if !objN.IsUint() || !objOffset.IsUint() {
+			return newError("invalid ObjStm pairs")
+		}
+		pairs = append(pairs, pair{uint(objN.Number), uint(objOffset.Number)})
+	}
+	for i, pair := range pairs {
+		if pair.offset > uint(len(data)) ||
+			i > 0 && pairs[i-1].offset >= pair.offset {
+			return newError("invalid ObjStm pairs")
+		}
+	}
+
+	for i, pair := range pairs {
+		if pair.n != n {
+			continue
+		}
+
+		if i+1 < len(pairs) {
+			data = data[pair.offset:pairs[i+1].offset]
+		} else {
+			data = data[pair.offset:]
+		}
+
+		lex2 := Lexer{data}
+		var stack []Object
+		for {
+			object, err := u.parse(&lex2, &stack)
+			if err != nil {
+				return object, err
+			} else if object.Kind == End {
+				break
+			} else {
+				stack = append(stack, object)
+			}
+		}
+		if len(stack) == 0 {
+			return newError("empty ObjStm object")
+		}
+		return stack[0], nil
+	}
+	return newError("object not found in ObjStm")
+}
+
 // Get retrieves an object by its number and generation--may return
 // Nil or End with an error.
 func (u *Updater) Get(n, generation uint) (Object, error) {
@@ -833,8 +1077,13 @@ func (u *Updater) Get(n, generation uint) (Object, error) {
 	}
 
 	ref := u.xref[n]
-	if !ref.nonfree || ref.generation != generation ||
-		ref.offset >= int64(len(u.Document)) {
+	if !ref.nonfree || ref.generation != generation {
+		return New(Nil), nil
+	}
+
+	if ref.compressed != nil {
+		return u.getFromObjStm(*ref.compressed, n)
+	} else if ref.offset >= int64(len(u.Document)) {
 		return New(Nil), nil
 	}
 
@@ -889,8 +1138,8 @@ type BytesWriter interface {
 	WriteString(s string) (n int, err error)
 }
 
-// Update appends an updated object to the end of the document. The fill
-// callback must write exactly one PDF object.
+// Update appends an updated object to the end of the document.
+// The fill callback must write exactly one PDF object.
 func (u *Updater) Update(n uint, fill func(buf BytesWriter)) {
 	oldRef := u.xref[n]
 	u.updated[n] = struct{}{}
@@ -910,20 +1159,62 @@ func (u *Updater) Update(n uint, fill func(buf BytesWriter)) {
 	u.Document = buf.Bytes()
 }
 
-// FlushUpdates writes an updated cross-reference table and trailer.
-func (u *Updater) FlushUpdates() {
-	updated := make([]uint, 0, len(u.updated))
-	for n := range u.updated {
-		updated = append(updated, n)
+func (u *Updater) flushXRefStm(updated []uint, buf *bytes.Buffer) {
+	// The cross-reference stream has to point to itself.
+	// XXX: We only duplicate Update code here due to how we currently buffer.
+	n := u.Allocate()
+	updated = append(updated, n)
+
+	u.updated[n] = struct{}{}
+	u.xref[n] = ref{
+		offset:     int64(buf.Len() + 1),
+		generation: 0,
+		nonfree:    true,
 	}
-	sort.Slice(updated, func(i, j int) bool {
-		return updated[i] < updated[j]
+
+	index, b := []Object{}, []byte{}
+	write := func(f1 byte, f2, f3 uint64) {
+		b = append(b, f1)
+		b = binary.BigEndian.AppendUint64(b, f2)
+		b = binary.BigEndian.AppendUint64(b, f3)
+	}
+	for i := 0; i < len(updated); {
+		start, stop := updated[i], updated[i]+1
+		for i++; i < len(updated) && updated[i] == stop; i++ {
+			stop++
+		}
+
+		index = append(index,
+			NewNumeric(float64(start)), NewNumeric(float64(stop-start)))
+		for ; start < stop; start++ {
+			ref := u.xref[start]
+			if ref.compressed != nil {
+				write(2, uint64(*ref.compressed), uint64(ref.offset))
+			} else if ref.nonfree {
+				write(1, uint64(ref.offset), uint64(ref.generation))
+			} else {
+				write(0, uint64(ref.offset), uint64(ref.generation))
+			}
+		}
+	}
+
+	u.Trailer["Size"] = NewNumeric(float64(u.xrefSize))
+	u.Trailer["Index"] = NewArray(index)
+	u.Trailer["W"] = NewArray([]Object{
+		NewNumeric(1), NewNumeric(8), NewNumeric(8),
 	})
 
-	buf := bytes.NewBuffer(u.Document)
-	startXref := buf.Len() + 1
-	buf.WriteString("\nxref\n")
+	for _, key := range []string{
+		"Filter", "DecodeParms", "F", "FFilter", "FDecodeParms", "DL"} {
+		delete(u.Trailer, key)
+	}
 
+	stream := NewStream(u.Trailer, b)
+	fmt.Fprintf(buf, "\n%d 0 obj\n%s\nendobj", n, stream.Serialize())
+}
+
+func (u *Updater) flushXRef(updated []uint, buf *bytes.Buffer) {
+	buf.WriteString("\nxref\n")
 	for i := 0; i < len(updated); {
 		start, stop := updated[i], updated[i]+1
 		for i++; i < len(updated) && updated[i] == stop; i++ {
@@ -932,8 +1223,9 @@ func (u *Updater) FlushUpdates() {
 
 		fmt.Fprintf(buf, "%d %d\n", start, stop-start)
 		for ; start < stop; start++ {
+			// XXX: We should warn about any object streams here.
 			ref := u.xref[start]
-			if ref.nonfree {
+			if ref.nonfree && ref.compressed == nil {
 				fmt.Fprintf(buf, "%010d %05d n \n", ref.offset, ref.generation)
 			} else {
 				fmt.Fprintf(buf, "%010d %05d f \n", ref.offset, ref.generation)
@@ -950,9 +1242,34 @@ func (u *Updater) FlushUpdates() {
 
 	u.Trailer["Size"] = NewNumeric(float64(u.xrefSize))
 	trailer := NewDict(u.Trailer)
+	fmt.Fprintf(buf, "trailer\n%s", trailer.Serialize())
+}
 
-	fmt.Fprintf(buf, "trailer\n%s\nstartxref\n%d\n%%%%EOF\n",
-		trailer.Serialize(), startXref)
+// FlushUpdates writes an updated cross-reference table and trailer.
+func (u *Updater) FlushUpdates() {
+	updated := make([]uint, 0, len(u.updated))
+	for n := range u.updated {
+		updated = append(updated, n)
+	}
+	sort.Slice(updated, func(i, j int) bool {
+		return updated[i] < updated[j]
+	})
+
+	// It does not seem to be possible to upgrade a PDF file
+	// from trailer dictionaries to cross-reference streams,
+	// so keep continuity either way.
+	//
+	// (Downgrading from cross-reference streams using XRefStm would not
+	// create a true hybrid-reference file, although it should work.)
+	buf := bytes.NewBuffer(u.Document)
+	startXref := buf.Len() + 1 /* '\n' */
+	if typ, _ := u.Trailer["Type"]; typ.Kind == Name && typ.String == "XRef" {
+		u.flushXRefStm(updated, buf)
+	} else {
+		u.flushXRef(updated, buf)
+	}
+
+	fmt.Fprintf(buf, "\nstartxref\n%d\n%%%%EOF\n", startXref)
 	u.Document = buf.Bytes()
 }
 
@@ -969,6 +1286,36 @@ func NewDate(ts time.Time) Object {
 		buf = append(buf, 'Z')
 	}
 	return NewString(string(buf))
+}
+
+// GetStreamData returns the actual data stored in a stream object,
+// applying any filters.
+func (u *Updater) GetStreamData(stream Object) ([]byte, error) {
+	if f, ok := stream.Dict["F"]; ok && f.Kind != Nil {
+		return nil, errors.New("stream data in other files are unsupported")
+	}
+
+	// Support just enough to decode a common cross-reference stream.
+	if filter, ok := stream.Dict["Filter"]; !ok {
+		return stream.Stream, nil
+	} else if filter.Kind != Name || filter.String != "FlateDecode" {
+		return nil, errors.New("unsupported stream Filter")
+	}
+
+	// TODO: Support << /Columns N /Predictor 12 >>
+	// which usually appears in files with cross-reference streams.
+	if parms, ok := stream.Dict["DecodeParms"]; ok && parms.Kind != Nil {
+		return nil, errors.New("DecodeParms are not supported")
+	}
+
+	r, err := zlib.NewReader(bytes.NewReader(stream.Stream))
+	if err != nil {
+		return nil, err
+	}
+
+	var b bytes.Buffer
+	_, err = b.ReadFrom(r)
+	return b.Bytes(), err
 }
 
 // GetFirstPage retrieves the first page of the given page (sub)tree reference,
@@ -1274,7 +1621,7 @@ func Sign(document []byte, key crypto.PrivateKey, certs []*x509.Certificate,
 	})
 
 	// 8.6.1 Interactive Form Dictionary
-	if _, ok := root.Dict["AcroForm"]; ok {
+	if acroform, ok := root.Dict["AcroForm"]; ok && acroform.Kind != Nil {
 		return nil, errors.New("the document already contains forms, " +
 			"they would be overwritten")
 	}
