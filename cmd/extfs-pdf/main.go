@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2021, Přemysl Eric Janouch <p@janouch.name>
+// Copyright (c) 2021 - 2024, Přemysl Eric Janouch <p@janouch.name>
 //
 // Permission to use, copy, modify, and/or distribute this software for any
 // purpose with or without fee is hereby granted.
@@ -46,6 +46,8 @@ func streamSuffix(o *pdf.Object) string {
 			return "jp2"
 		case "DCTDecode":
 			return "jpg"
+		case "FlateDecode":
+			return "zz"
 		default:
 			return filter.String
 		}
