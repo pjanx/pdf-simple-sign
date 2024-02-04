@@ -36,12 +36,25 @@ Runtime dependencies: libcrypto (OpenSSL 1.1 API)
 In addition to the C++ version, also included is a native Go port,
 which has enhanced PDF 1.5 support:
 
- $ go get janouch.name/pdf-simple-sign/cmd/pdf-simple-sign
+----
+$ go install janouch.name/pdf-simple-sign/cmd/pdf-simple-sign@master
+----
 
-And a crude external VFS for Midnight Commander, that may be used to extract
+and a crude external VFS for Midnight Commander, that may be used to extract
 all streams from a given PDF file:
 
- $ go get janouch.name/pdf-simple-sign/cmd/extfs-pdf
+----
+$ GOBIN=$HOME/.local/share/mc/extfs.d \
+  go install janouch.name/pdf-simple-sign/cmd/extfs-pdf@master
+----
+
+To enable the VFS, edit your _~/.config/mc/mc.ext.ini_ to contain:
+
+----
+[pdf]
+Type=^PDF
+Open=%cd %p/pdf://
+----
 
 Contributing and Support
 ------------------------
