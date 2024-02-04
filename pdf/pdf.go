@@ -1271,6 +1271,9 @@ func (u *Updater) FlushUpdates() {
 
 	fmt.Fprintf(buf, "\nstartxref\n%d\n%%%%EOF\n", startXref)
 	u.Document = buf.Bytes()
+	u.updated = make(map[uint]struct{})
+
+	u.Trailer["Prev"] = NewNumeric(float64(startXref))
 }
 
 // -----------------------------------------------------------------------------
