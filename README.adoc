@@ -53,7 +53,7 @@ To enable the VFS, edit your _~/.config/mc/mc.ext.ini_ to contain:
 ----
 [pdf]
 Type=^PDF
-Open=%cd %p/pdf://
+Open=%cd %p/extfs-pdf://
 ----
 
 Contributing and Support
