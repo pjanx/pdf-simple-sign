@@ -809,8 +809,8 @@ func (u *Updater) loadXrefStream(
 				r.compressed = &f2
 				r.nonfree = true
 			default:
-				// TODO: It should be treated as a reference to the null object.
-				// We can't currently represent that.
+				// TODO(p): It should be treated as a reference to
+				// the null object. We can't currently represent that.
 				return newError("unsupported cross-reference stream contents")
 			}
 
@@ -924,7 +924,7 @@ func NewUpdater(document []byte) (*Updater, error) {
 		}
 		loadedXrefs[xrefOffset] = struct{}{}
 
-		// TODO: Descend into XRefStm here first, if present,
+		// TODO(p): Descend into XRefStm here first, if present,
 		// which is also a linked list.
 
 		// We allow for mixed cross-reference tables and streams
@@ -1213,7 +1213,7 @@ func (u *Updater) flushXRefStm(updated []uint, buf *bytes.Buffer) {
 	fmt.Fprintf(buf, "\n%d 0 obj\n%s\nendobj", n, stream.Serialize())
 }
 
-func (u *Updater) flushXRef(updated []uint, buf *bytes.Buffer) {
+func (u *Updater) flushXRefTable(updated []uint, buf *bytes.Buffer) {
 	buf.WriteString("\nxref\n")
 	for i := 0; i < len(updated); {
 		start, stop := updated[i], updated[i]+1
@@ -1245,7 +1245,7 @@ func (u *Updater) flushXRef(updated []uint, buf *bytes.Buffer) {
 	fmt.Fprintf(buf, "trailer\n%s", trailer.Serialize())
 }
 
-// FlushUpdates writes an updated cross-reference table and trailer.
+// FlushUpdates writes an updated cross-reference table and trailer, or stream.
 func (u *Updater) FlushUpdates() {
 	updated := make([]uint, 0, len(u.updated))
 	for n := range u.updated {
@@ -1266,7 +1266,7 @@ func (u *Updater) FlushUpdates() {
 	if typ, _ := u.Trailer["Type"]; typ.Kind == Name && typ.String == "XRef" {
 		u.flushXRefStm(updated, buf)
 	} else {
-		u.flushXRef(updated, buf)
+		u.flushXRefTable(updated, buf)
 	}
 
 	fmt.Fprintf(buf, "\nstartxref\n%d\n%%%%EOF\n", startXref)
@@ -1302,7 +1302,7 @@ func (u *Updater) GetStreamData(stream Object) ([]byte, error) {
 		return nil, errors.New("unsupported stream Filter")
 	}
 
-	// TODO: Support << /Columns N /Predictor 12 >>
+	// TODO(p): Support << /Columns N /Predictor 12 >>
 	// which usually appears in files with cross-reference streams.
 	if parms, ok := stream.Dict["DecodeParms"]; ok && parms.Kind != Nil {
 		return nil, errors.New("DecodeParms are not supported")
