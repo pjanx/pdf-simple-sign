@@ -66,7 +66,8 @@ for tool in "$@"; do
 
 		# Only some of our generators use PDF versions higher than 1.5
 		log "Testing $tool for version detection"
-		grep -q "/Version /1.6" "$result" || grep -q "^%PDF-1.6" "$result" \
+		grep -q "/Version /1[.]6" "$result" \
+			|| grep -q "^%PDF-1[.][67]" "$result" \
 			|| die "Version detection seems to misbehave (no upgrade)"
 	done
 
