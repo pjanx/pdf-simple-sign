@@ -33,6 +33,8 @@ Runtime dependencies: libcrypto (OpenSSL 1.1 API)
  $ cd builddir
  $ ninja
 
+Go
+~~
 In addition to the C++ version, also included is a native Go port,
 which has enhanced PDF 1.5 support:
 
@@ -55,6 +57,15 @@ To enable the VFS, edit your _~/.config/mc/mc.ext.ini_ to contain:
 Type=^PDF
 Open=%cd %p/extfs-pdf://
 ----
+
+Lua PDF generator
+~~~~~~~~~~~~~~~~~
+Build dependencies: Meson, a C++17 compiler, pkg-config +
+Runtime dependencies: C++ Lua >= 5.3 (custom Meson wrap fallback),
+ cairo >= 1.15.4, pangocairo, libqrencode
+
+This is a parasitic subproject located in the _lpg_ subdirectory.
+It will generate its own documentation.
 
 Contributing and Support
 ------------------------

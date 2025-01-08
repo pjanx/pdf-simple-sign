@@ -1,0 +1,9 @@
+BasedOnStyle: LLVM
+ColumnLimit: 80
+IndentWidth: 4
+TabWidth: 4
+UseTab: ForContinuationAndIndentation
+SpaceAfterCStyleCast: true
+AlignAfterOpenBracket: DontAlign
+AlignOperands: DontAlign
+SpacesBeforeTrailingComments: 2

@@ -1,0 +1,4 @@
+option(
+  'loadlib', type : 'feature',
+  description : 'Allow Lua to "require" C extension modules'
+)

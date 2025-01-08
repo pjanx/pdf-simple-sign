@@ -1,0 +1,10 @@
+[wrap-file]
+directory = lua-5.4.7
+source_url = https://github.com/lua/lua/archive/refs/tags/v5.4.7.tar.gz
+source_filename = lua-5.4.7.tar.gz
+source_hash = 5c39111b3fc4c1c9e56671008955a1730f54a15b95e1f1bd0752b868b929d8e3
+patch_directory = lua-5.4.7
+
+[provide]
+lua++-5.4 = lua_dep
+lua++ = lua_dep
