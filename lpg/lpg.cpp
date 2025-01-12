@@ -88,8 +88,8 @@ struct Widget {
 	}
 
 	/// Render to the context within the designated space, no clipping.
-	virtual void render([[maybe_unused]] cairo_t *cr, [[maybe_unused]] double w,
-		[[maybe_unused]] double h) {}
+	virtual void render([[maybe_unused]] cairo_t *cr,
+		[[maybe_unused]] double w, [[maybe_unused]] double h) {}
 };
 
 /// Special container that basically just fucks with the system right now.
@@ -104,6 +104,20 @@ DefWidget(Frame) {
 
 	virtual tuple<double, double> prepare(PangoContext *pc) override {
 		auto d = child->prepare(pc);
+		if (auto v = getattr("w_override"))
+			get<0>(d) = get<double>(*v);
+		if (auto v = getattr("h_override"))
+			get<1>(d) = get<double>(*v);
+		return d;
+	}
+
+	virtual tuple<double, double> prepare_for_size(
+		PangoContext *pc, double width, double height) override {
+		if (auto v = getattr("w_override"); v && get<double>(*v) >= 0)
+			width = get<double>(*v);
+		if (auto v = getattr("h_override"); v && get<double>(*v) >= 0)
+			height = get<double>(*v);
+		auto d = child->prepare_for_size(pc, width, height);
 		if (auto v = getattr("w_override"))
 			get<0>(d) = get<double>(*v);
 		if (auto v = getattr("h_override"))
@@ -252,8 +266,7 @@ DefContainer(VBox) {
 DefWidget(Filler) {
 	double w, h;
 	Filler(double w = -1, double h = -1) : w(w), h(h) {}
-	virtual tuple<double, double> prepare(
-		[[maybe_unused]] PangoContext *pc) override {
+	virtual tuple<double, double> prepare(PangoContext *) override {
 		return {w, h};
 	}
 };
@@ -261,8 +274,7 @@ DefWidget(Filler) {
 DefWidget(HLine) {
 	double thickness;
 	HLine(double thickness = 1) : thickness(thickness) {}
-	virtual tuple<double, double> prepare(
-		[[maybe_unused]] PangoContext *pc) override {
+	virtual tuple<double, double> prepare(PangoContext *) override {
 		return {-1, thickness};
 	}
 	virtual void render(cairo_t *cr, double w, double h) override {
@@ -276,8 +288,7 @@ DefWidget(HLine) {
 DefWidget(VLine) {
 	double thickness;
 	VLine(double thickness = 1) : thickness(thickness) {}
-	virtual tuple<double, double> prepare(
-		[[maybe_unused]] PangoContext *pc) override {
+	virtual tuple<double, double> prepare(PangoContext *) override {
 		return {thickness, -1};
 	}
 	virtual void render(cairo_t *cr, double w, double h) override {
@@ -355,8 +366,8 @@ DefWidget(Text) {
 			double(w) / PANGO_SCALE, double(h) / PANGO_SCALE + 2 * y_offset};
 	}
 
-	virtual tuple<double, double> prepare_for_size(PangoContext *pc,
-		double width, [[maybe_unused]] double height) override {
+	virtual tuple<double, double> prepare_for_size(
+		PangoContext *pc, double width, double) override {
 		prepare_layout(pc);
 
 		// It's difficult to get vertical text, so wrap horizontally.
@@ -368,7 +379,7 @@ DefWidget(Text) {
 			double(w) / PANGO_SCALE, double(h) / PANGO_SCALE + 2 * y_offset};
 	}
 
-	virtual void render(cairo_t *cr, double w, [[maybe_unused]] double h)
+	virtual void render(cairo_t *cr, double w, double)
 		override {
 		g_return_if_fail(layout);
 		// Assuming horizontal text, make it span the whole allocation.
@@ -424,19 +435,32 @@ DefWidget(Picture) {
 	double scale_x = 1., scale_y = 1.;
 	cairo_surface_t *surface = nullptr;
 
+	double postscale_for(double width, double height) {
+		double w = this->w * scale_x;
+		double h = this->h * scale_y;
+		if (w < 0 || h < 0)
+			return 1;
+
+		double postscale = width / w;
+		if (h * postscale > height)
+			postscale = height / h;
+		return postscale;
+	}
+
 	virtual tuple<double, double> prepare(PangoContext *) override {
 		return {w * scale_x, h * scale_y};
+	}
+
+	virtual tuple<double, double> prepare_for_size(
+		PangoContext *pc, double width, double height) override {
+		auto d = prepare(pc);
+		auto postscale = postscale_for(width, height);
+		return {get<0>(d) * postscale, get<1>(d) * postscale};
 	}
 
 	virtual void render(cairo_t *cr, double width, double height) override {
 		if (!surface || width <= 0 || height <= 0)
 			return;
-
-		double ww = this->w * scale_x;
-		double hh = this->h * scale_y;
-		double postscale = width / ww;
-		if (hh * postscale > height)
-			postscale = height / hh;
 
 		// For PDF-A, ISO 19005-3:2012 6.2.8: interpolation is not allowed
 		// (Cairo sets it on by default).
@@ -447,6 +471,7 @@ DefWidget(Picture) {
 			pattern, interpolate ? CAIRO_FILTER_GOOD : CAIRO_FILTER_NEAREST);
 
 		// Maybe we should also center the picture or something...
+		auto postscale = postscale_for(width, height);
 		cairo_scale(cr, scale_x * postscale, scale_y * postscale);
 		cairo_set_source(cr, pattern);
 		cairo_paint(cr);
@@ -524,16 +549,14 @@ DefWidget(QR) {
 			QRcode_free(code);
 	}
 
-	virtual tuple<double, double> prepare([[maybe_unused]] PangoContext *pc)
-		override {
+	virtual tuple<double, double> prepare(PangoContext *) override {
 		if (!code)
 			return {0, 0};
 
 		return {T * code->width, T * code->width};
 	}
 
-	virtual void render(cairo_t *cr,
-		[[maybe_unused]] double w, [[maybe_unused]] double h) override {
+	virtual void render(cairo_t *cr, double, double) override {
 		if (!code)
 			return;
 
@@ -1062,8 +1085,7 @@ static int xlua_error_handler(lua_State *L) {
 	return 1;
 }
 
-static void *xlua_alloc([[maybe_unused]] void *ud, void *ptr,
-	[[maybe_unused]] size_t o_size, size_t n_size) {
+static void *xlua_alloc(void *, void *ptr, size_t, size_t n_size) {
 	if (n_size)
 		return realloc(ptr, n_size);
 
