@@ -1106,7 +1106,11 @@ int main(int argc, char *argv[]) {
 		return 1;
 	}
 
-	lua_State *L = lua_newstate(xlua_alloc, NULL);
+#if LUA_VERSION_NUM >= 505
+	lua_State *L = lua_newstate (xlua_alloc, NULL, 0);
+#else
+	lua_State *L = lua_newstate (xlua_alloc, NULL);
+#endif
 	if (!L) {
 		cerr << "fatal: Lua initialization failed" << endl;
 		return 1;
